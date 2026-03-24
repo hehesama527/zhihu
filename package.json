@@ -1,0 +1,21 @@
+{
+  "name": "zhihu-automation-mvp",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @zhihu-mvp/shared && npm run build -w @zhihu-mvp/core && npm run build -w @zhihu-mvp/api && npm run build -w @zhihu-mvp/worker && npm run build -w @zhihu-mvp/web",
+    "dev": "concurrently \"npm run dev -w @zhihu-mvp/api\" \"npm run dev -w @zhihu-mvp/worker\" \"npm run dev -w @zhihu-mvp/web\"",
+    "db:init": "npm run db:init -w @zhihu-mvp/api",
+    "lint": "npm run lint -w @zhihu-mvp/web",
+    "typecheck": "npm run typecheck -w @zhihu-mvp/shared && npm run typecheck -w @zhihu-mvp/core && npm run typecheck -w @zhihu-mvp/api && npm run typecheck -w @zhihu-mvp/worker && npm run typecheck -w @zhihu-mvp/web"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.3",
+    "concurrently": "^9.1.2",
+    "typescript": "^5.8.3"
+  }
+}

@@ -1,0 +1,14 @@
+node_modules
+.next
+dist
+coverage
+data
+.env
+.env.local
+npm-debug.log*
+tsconfig.tsbuildinfo
+.playwright-cli
+.run
+.runlogs
+output
+data-edge

@@ -1,0 +1,746 @@
+import type {
+  ArtifactSummary,
+  FailureType,
+  JobDetail,
+  JobDisplayStatus,
+  JobListItem,
+  JobStage,
+  JobStatus,
+  PublishAttemptSummary,
+  SkillName,
+  SkillRunSummary,
+  ToolTraceStage,
+  ToolTraceSummary
+} from "@zhihu-mvp/shared";
+import type { Pool, ResultSetHeader, RowDataPacket } from "mysql2/promise";
+
+type JobRow = RowDataPacket & {
+  id: number;
+  account_id: number;
+  topic_card_id: number | null;
+  review_id: number | null;
+  status: JobStatus;
+  title: string | null;
+  scheduled_at: Date | null;
+  started_at: Date | null;
+  finished_at: Date | null;
+  final_url: string | null;
+  retry_count: number;
+  failure_reason: string | null;
+  prompt_version_snapshot_json: string | null;
+  current_stage: JobStage | null;
+  resume_anchor_json: string | null;
+  last_trace_id: string | null;
+  last_error_type: FailureType | null;
+  created_at: Date;
+  updated_at: Date;
+  schedule_slot_id?: number | null;
+  schedule_status?: JobListItem["scheduleStatus"];
+  latest_attempt_status?: string | null;
+  latest_failure_type?: FailureType | null;
+  latest_screenshot_path?: string | null;
+  question_title?: string | null;
+  question_url?: string | null;
+  topic_summary?: string | null;
+  topic_output_json?: string | null;
+  draft_content?: string | null;
+  humanized_content?: string | null;
+  approved_content?: string | null;
+  review_summary?: string | null;
+  hard_gate_json?: string | null;
+  editorial_review_json?: string | null;
+  publish_review_json?: string | null;
+  topic_duplication_json?: string | null;
+  content_duplication_json?: string | null;
+};
+
+type PublishAttemptRow = RowDataPacket & {
+  id: number;
+  publish_job_id: number;
+  attempt_no: number;
+  status: string;
+  current_url: string | null;
+  failure_type: FailureType | null;
+  failure_reason: string | null;
+  attempt_json: string;
+  created_at: Date;
+};
+
+type ArtifactRow = RowDataPacket & {
+  id: number;
+  publish_attempt_id: number | null;
+  artifact_type: string;
+  file_path: string;
+  meta_json: string | null;
+  created_at: Date;
+};
+
+type ToolTraceRow = RowDataPacket & {
+  id: number;
+  publish_job_id: number | null;
+  publish_attempt_id: number | null;
+  trace_id: string;
+  stage: ToolTraceStage;
+  tool_name: string;
+  action: ToolTraceSummary["action"];
+  input_json: string;
+  result_json: string | null;
+  artifact_path: string | null;
+  duration_ms: number | null;
+  success: number;
+  error_message: string | null;
+  created_at: Date;
+};
+
+type SkillRunRow = RowDataPacket & {
+  id: number;
+  publish_job_id: number | null;
+  publish_attempt_id: number | null;
+  skill_name: SkillName;
+  agent_name: string;
+  stage: string | null;
+  trace_id: string | null;
+  input_json: string;
+  output_json: string | null;
+  duration_ms: number | null;
+  success: number;
+  error_message: string | null;
+  created_at: Date;
+};
+
+type JobUpdateOptions = {
+  failureReason?: string | null;
+  finalUrl?: string | null;
+  currentStage?: JobStage | null;
+  resumeAnchorJson?: string | null;
+  promptVersionSnapshotJson?: string | null;
+  lastTraceId?: string | null;
+  lastErrorType?: FailureType | null;
+};
+
+export class JobRepository {
+  constructor(private readonly pool: Pool) {}
+
+  async listJobs(): Promise<JobListItem[]> {
+    const [rows] = await this.pool.query<JobRow[]>(
+      `${buildJobListSql()}
+       ORDER BY COALESCE(dps.scheduled_at, pj.scheduled_at, pj.created_at) DESC
+       LIMIT 100`
+    );
+    return rows.map(mapJobRow);
+  }
+
+  async listPublishJobs(): Promise<JobListItem[]> {
+    return this.listJobs();
+  }
+
+  async getJobById(jobId: number): Promise<JobDetail | null> {
+    const [rows] = await this.pool.query<JobRow[]>(
+      `${buildJobListSql()}
+       WHERE pj.id = ?
+       LIMIT 1`,
+      [jobId]
+    );
+
+    const row = rows[0];
+    if (!row) {
+      return null;
+    }
+
+    return {
+      ...mapJobRow(row),
+      questionTitle: row.question_title ?? null,
+      questionUrl: row.question_url ?? null,
+      topicSummary: row.topic_summary ?? null,
+      topicOutputJson: row.topic_output_json ?? null,
+      draftContent: row.draft_content ?? null,
+      humanizedContent: row.humanized_content ?? null,
+      approvedContent: row.approved_content ?? null,
+      reviewSummary: row.review_summary ?? null,
+      hardGateJson: row.hard_gate_json ?? null,
+      editorialReviewJson: row.editorial_review_json ?? null,
+      publishReviewJson: row.publish_review_json ?? null,
+      topicDuplicationJson: row.topic_duplication_json ?? null,
+      contentDuplicationJson: row.content_duplication_json ?? null
+    };
+  }
+
+  async createQueuedJob(input: {
+    accountId: number;
+    scheduledAt: string | Date | null;
+    title?: string | null;
+    promptVersionSnapshotJson?: string | null;
+  }) {
+    const [result] = await this.pool.query<ResultSetHeader>(
+      `INSERT INTO publish_jobs (
+         account_id,
+         status,
+         title,
+         scheduled_at,
+         prompt_version_snapshot_json,
+         current_stage
+       )
+      VALUES (?, 'queued', ?, ?, ?, 'queued')`,
+      [
+        input.accountId,
+        input.title ?? null,
+        normalizeMysqlDateTime(input.scheduledAt),
+        input.promptVersionSnapshotJson ?? null
+      ]
+    );
+    return result.insertId;
+  }
+
+  async replaceJobPayload(
+    jobId: number,
+    input: {
+      topicCardId: number;
+      reviewId: number;
+      title: string;
+      promptVersionSnapshotJson: string | null;
+    }
+  ) {
+    await this.pool.query(
+      `UPDATE publish_jobs
+       SET topic_card_id = ?,
+           review_id = ?,
+           title = ?,
+           status = 'review_passed',
+           failure_reason = NULL,
+           retry_count = 0,
+           prompt_version_snapshot_json = ?,
+           current_stage = 'review_passed',
+           resume_anchor_json = NULL,
+           last_error_type = NULL
+       WHERE id = ?`,
+      [input.topicCardId, input.reviewId, input.title, input.promptVersionSnapshotJson, jobId]
+    );
+  }
+
+  async updateJobStatus(jobId: number, status: JobStatus, options?: JobUpdateOptions) {
+    const hasFailureReason = options ? Object.prototype.hasOwnProperty.call(options, "failureReason") : false;
+    const hasFinalUrl = options ? Object.prototype.hasOwnProperty.call(options, "finalUrl") : false;
+    const hasCurrentStage = options ? Object.prototype.hasOwnProperty.call(options, "currentStage") : false;
+    const hasResumeAnchor = options ? Object.prototype.hasOwnProperty.call(options, "resumeAnchorJson") : false;
+    const hasPromptSnapshot = options ? Object.prototype.hasOwnProperty.call(options, "promptVersionSnapshotJson") : false;
+    const hasLastTraceId = options ? Object.prototype.hasOwnProperty.call(options, "lastTraceId") : false;
+    const hasLastErrorType = options ? Object.prototype.hasOwnProperty.call(options, "lastErrorType") : false;
+
+    await this.pool.query(
+      `UPDATE publish_jobs
+       SET status = ?,
+           failure_reason = CASE WHEN ? THEN ? ELSE failure_reason END,
+           final_url = CASE WHEN ? THEN ? ELSE final_url END,
+           current_stage = CASE WHEN ? THEN ? ELSE current_stage END,
+           resume_anchor_json = CASE WHEN ? THEN ? ELSE resume_anchor_json END,
+           prompt_version_snapshot_json = CASE WHEN ? THEN ? ELSE prompt_version_snapshot_json END,
+           last_trace_id = CASE WHEN ? THEN ? ELSE last_trace_id END,
+           last_error_type = CASE WHEN ? THEN ? ELSE last_error_type END,
+           started_at = CASE WHEN ? = 'publishing' AND started_at IS NULL THEN CURRENT_TIMESTAMP ELSE started_at END,
+           finished_at = CASE WHEN ? IN ('published', 'failed_terminal') THEN CURRENT_TIMESTAMP ELSE finished_at END
+       WHERE id = ?`,
+      [
+        status,
+        hasFailureReason ? 1 : 0,
+        options?.failureReason ?? null,
+        hasFinalUrl ? 1 : 0,
+        options?.finalUrl ?? null,
+        hasCurrentStage ? 1 : 0,
+        options?.currentStage ?? null,
+        hasResumeAnchor ? 1 : 0,
+        options?.resumeAnchorJson ?? null,
+        hasPromptSnapshot ? 1 : 0,
+        options?.promptVersionSnapshotJson ?? null,
+        hasLastTraceId ? 1 : 0,
+        options?.lastTraceId ?? null,
+        hasLastErrorType ? 1 : 0,
+        options?.lastErrorType ?? null,
+        status,
+        status,
+        jobId
+      ]
+    );
+  }
+
+  async updateJobRuntimeContext(
+    jobId: number,
+    input: {
+      currentStage?: JobStage | null;
+      lastTraceId?: string | null;
+      lastErrorType?: FailureType | null;
+    }
+  ) {
+    const hasCurrentStage = Object.prototype.hasOwnProperty.call(input, "currentStage");
+    const hasLastTraceId = Object.prototype.hasOwnProperty.call(input, "lastTraceId");
+    const hasLastErrorType = Object.prototype.hasOwnProperty.call(input, "lastErrorType");
+
+    await this.pool.query(
+      `UPDATE publish_jobs
+       SET current_stage = CASE WHEN ? THEN ? ELSE current_stage END,
+           last_trace_id = CASE WHEN ? THEN ? ELSE last_trace_id END,
+           last_error_type = CASE WHEN ? THEN ? ELSE last_error_type END
+       WHERE id = ?`,
+      [
+        hasCurrentStage ? 1 : 0,
+        input.currentStage ?? null,
+        hasLastTraceId ? 1 : 0,
+        input.lastTraceId ?? null,
+        hasLastErrorType ? 1 : 0,
+        input.lastErrorType ?? null,
+        jobId
+      ]
+    );
+  }
+
+  async incrementRetry(jobId: number) {
+    await this.pool.query(`UPDATE publish_jobs SET retry_count = retry_count + 1 WHERE id = ?`, [jobId]);
+  }
+
+  async listBlockedJobs(accountId = 1): Promise<JobListItem[]> {
+    const [rows] = await this.pool.query<JobRow[]>(
+      `${buildJobListSql()}
+       WHERE pj.account_id = ? AND pj.status = 'manual_login_required'
+       ORDER BY COALESCE(dps.scheduled_at, pj.scheduled_at, pj.created_at) ASC`,
+      [accountId]
+    );
+    return rows.map(mapJobRow);
+  }
+
+  async getJobsNeedingPreparation(limit = 10): Promise<JobListItem[]> {
+    const [rows] = await this.pool.query<JobRow[]>(
+      `${buildJobListSql()}
+       WHERE pj.status IN (
+         'queued',
+         'topic_discovery',
+         'topic_agent',
+         'topic_review',
+         'writer',
+         'humanizing',
+         'review_hard_gate',
+         'review_editorial',
+         'review_publish'
+       )
+       ORDER BY COALESCE(dps.scheduled_at, pj.scheduled_at, pj.created_at) ASC
+       LIMIT ?`,
+      [limit]
+    );
+
+    return rows.map(mapJobRow);
+  }
+
+  async getDueJobs(now = new Date()): Promise<JobListItem[]> {
+    const [rows] = await this.pool.query<JobRow[]>(
+      `${buildJobListSql()}
+       WHERE COALESCE(dps.scheduled_at, pj.scheduled_at, pj.created_at) <= ?
+         AND pj.status IN ('review_passed', 'login_checking', 'retry_waiting', 'manual_login_required')
+       ORDER BY COALESCE(dps.scheduled_at, pj.scheduled_at, pj.created_at) ASC`,
+      [now]
+    );
+    return rows.map(mapJobRow);
+  }
+
+  async retryJob(jobId: number) {
+    await this.pool.query(
+      `UPDATE publish_jobs
+       SET status = 'retry_waiting',
+           current_stage = 'retry_waiting',
+           failure_reason = NULL,
+           last_error_type = NULL,
+           retry_count = 0,
+           resume_anchor_json = NULL,
+           last_trace_id = NULL,
+           started_at = NULL,
+           finished_at = NULL
+       WHERE id = ?`,
+      [jobId]
+    );
+  }
+
+  async createPublishAttempt(
+    jobId: number,
+    attemptNo: number,
+    status: string,
+    currentUrl: string | null,
+    payload: unknown,
+    failureType?: FailureType | null,
+    failureReason?: string | null
+  ) {
+    const [result] = await this.pool.query<ResultSetHeader>(
+      `INSERT INTO publish_attempts (publish_job_id, attempt_no, status, current_url, failure_type, failure_reason, attempt_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [jobId, attemptNo, status, currentUrl, failureType ?? null, failureReason ?? null, JSON.stringify(payload)]
+    );
+    return result.insertId;
+  }
+
+  async updatePublishAttempt(
+    attemptId: number,
+    input: {
+      status: string;
+      currentUrl?: string | null;
+      payload?: unknown;
+      failureType?: FailureType | null;
+      failureReason?: string | null;
+    }
+  ) {
+    const hasCurrentUrl = Object.prototype.hasOwnProperty.call(input, "currentUrl");
+    const hasPayload = Object.prototype.hasOwnProperty.call(input, "payload");
+    const hasFailureType = Object.prototype.hasOwnProperty.call(input, "failureType");
+    const hasFailureReason = Object.prototype.hasOwnProperty.call(input, "failureReason");
+
+    await this.pool.query(
+      `UPDATE publish_attempts
+       SET status = ?,
+           current_url = CASE WHEN ? THEN ? ELSE current_url END,
+           attempt_json = CASE WHEN ? THEN ? ELSE attempt_json END,
+           failure_type = CASE WHEN ? THEN ? ELSE failure_type END,
+           failure_reason = CASE WHEN ? THEN ? ELSE failure_reason END
+       WHERE id = ?`,
+      [
+        input.status,
+        hasCurrentUrl ? 1 : 0,
+        input.currentUrl ?? null,
+        hasPayload ? 1 : 0,
+        hasPayload ? JSON.stringify(input.payload) : null,
+        hasFailureType ? 1 : 0,
+        input.failureType ?? null,
+        hasFailureReason ? 1 : 0,
+        input.failureReason ?? null,
+        attemptId
+      ]
+    );
+  }
+
+  async listPublishAttempts(jobId: number): Promise<PublishAttemptSummary[]> {
+    const [rows] = await this.pool.query<PublishAttemptRow[]>(
+      `SELECT * FROM publish_attempts WHERE publish_job_id = ? ORDER BY attempt_no DESC, id DESC`,
+      [jobId]
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      publishJobId: row.publish_job_id,
+      attemptNo: row.attempt_no,
+      status: row.status,
+      currentUrl: row.current_url,
+      failureType: row.failure_type,
+      failureReason: row.failure_reason,
+      attemptJson: row.attempt_json,
+      createdAt: row.created_at.toISOString()
+    }));
+  }
+
+  async listArtifacts(jobId: number): Promise<ArtifactSummary[]> {
+    const [rows] = await this.pool.query<ArtifactRow[]>(
+      `SELECT a.*
+       FROM artifacts a
+       JOIN publish_attempts p ON p.id = a.publish_attempt_id
+       WHERE p.publish_job_id = ?
+       ORDER BY a.created_at DESC, a.id DESC`,
+      [jobId]
+    );
+
+    return rows.map((row) => ({
+      id: row.id,
+      publishAttemptId: row.publish_attempt_id,
+      artifactType: row.artifact_type,
+      filePath: row.file_path,
+      metaJson: row.meta_json,
+      createdAt: row.created_at.toISOString()
+    }));
+  }
+
+  async createArtifact(publishAttemptId: number | null, artifactType: string, filePath: string, metaJson?: unknown) {
+    await this.pool.query(
+      `INSERT INTO artifacts (publish_attempt_id, artifact_type, file_path, meta_json)
+       VALUES (?, ?, ?, ?)`,
+      [publishAttemptId, artifactType, filePath, metaJson ? JSON.stringify(metaJson) : null]
+    );
+  }
+
+  async createToolTrace(input: {
+    publishJobId: number | null;
+    publishAttemptId: number | null;
+    traceId: string;
+    stage: ToolTraceStage;
+    toolName: string;
+    action: ToolTraceSummary["action"];
+    inputJson: string;
+    resultJson?: string | null;
+    artifactPath?: string | null;
+    durationMs?: number | null;
+    success: boolean;
+    errorMessage?: string | null;
+  }) {
+    const [result] = await this.pool.query<ResultSetHeader>(
+      `INSERT INTO tool_traces (
+         publish_job_id,
+         publish_attempt_id,
+         trace_id,
+         stage,
+         tool_name,
+         action,
+         input_json,
+         result_json,
+         artifact_path,
+         duration_ms,
+         success,
+         error_message
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        input.publishJobId,
+        input.publishAttemptId,
+        input.traceId,
+        input.stage,
+        input.toolName,
+        input.action,
+        input.inputJson,
+        input.resultJson ?? null,
+        input.artifactPath ?? null,
+        input.durationMs ?? null,
+        input.success ? 1 : 0,
+        input.errorMessage ?? null
+      ]
+    );
+    return result.insertId;
+  }
+
+  async listToolTraces(jobId: number): Promise<ToolTraceSummary[]> {
+    const [rows] = await this.pool.query<ToolTraceRow[]>(
+      `SELECT *
+       FROM tool_traces
+       WHERE publish_job_id = ?
+       ORDER BY created_at DESC, id DESC`,
+      [jobId]
+    );
+
+    return rows.map((row) => ({
+      id: row.id,
+      publishJobId: row.publish_job_id,
+      publishAttemptId: row.publish_attempt_id,
+      traceId: row.trace_id,
+      stage: row.stage,
+      toolName: row.tool_name,
+      action: row.action,
+      inputJson: row.input_json,
+      resultJson: row.result_json,
+      artifactPath: row.artifact_path,
+      durationMs: row.duration_ms,
+      success: Boolean(row.success),
+      errorMessage: row.error_message,
+      createdAt: row.created_at.toISOString()
+    }));
+  }
+
+  async createSkillRun(input: {
+    publishJobId: number | null;
+    publishAttemptId: number | null;
+    skillName: SkillName;
+    agentName: string;
+    stage?: string | null;
+    traceId?: string | null;
+    inputJson: string;
+    outputJson?: string | null;
+    durationMs?: number | null;
+    success: boolean;
+    errorMessage?: string | null;
+  }) {
+    const [result] = await this.pool.query<ResultSetHeader>(
+      `INSERT INTO skill_runs (
+         publish_job_id,
+         publish_attempt_id,
+         skill_name,
+         agent_name,
+         stage,
+         trace_id,
+         input_json,
+         output_json,
+         duration_ms,
+         success,
+         error_message
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        input.publishJobId,
+        input.publishAttemptId,
+        input.skillName,
+        input.agentName,
+        input.stage ?? null,
+        input.traceId ?? null,
+        input.inputJson,
+        input.outputJson ?? null,
+        input.durationMs ?? null,
+        input.success ? 1 : 0,
+        input.errorMessage ?? null
+      ]
+    );
+    return result.insertId;
+  }
+
+  async listSkillRuns(jobId: number): Promise<SkillRunSummary[]> {
+    const [rows] = await this.pool.query<SkillRunRow[]>(
+      `SELECT *
+       FROM skill_runs
+       WHERE publish_job_id = ?
+       ORDER BY created_at DESC, id DESC`,
+      [jobId]
+    );
+
+    return rows.map((row) => ({
+      id: row.id,
+      publishJobId: row.publish_job_id,
+      publishAttemptId: row.publish_attempt_id,
+      skillName: row.skill_name,
+      agentName: row.agent_name,
+      stage: row.stage,
+      traceId: row.trace_id,
+      inputJson: row.input_json,
+      outputJson: row.output_json,
+      durationMs: row.duration_ms,
+      success: Boolean(row.success),
+      errorMessage: row.error_message,
+      createdAt: row.created_at.toISOString()
+    }));
+  }
+}
+
+function buildJobListSql() {
+  return `SELECT
+            pj.*,
+            dps.id AS schedule_slot_id,
+            dps.status AS schedule_status,
+            pa.status AS latest_attempt_status,
+            pa.failure_type AS latest_failure_type,
+            artifact_latest.file_path AS latest_screenshot_path,
+            tc.question_title,
+            tc.question_url,
+            tcard.summary_text AS topic_summary,
+            tcard.output_json AS topic_output_json,
+            draft_raw.content AS draft_content,
+            draft_humanized.content AS humanized_content,
+            rv.approved_content,
+            rv.review_summary,
+            rv.hard_gate_json,
+            rv.editorial_review_json,
+            rv.publish_review_json,
+            rv.topic_duplication_json,
+            rv.content_duplication_json
+          FROM publish_jobs pj
+          LEFT JOIN daily_publish_schedule dps ON dps.publish_job_id = pj.id
+          LEFT JOIN topic_cards tcard ON tcard.id = pj.topic_card_id
+          LEFT JOIN topic_candidates tc ON tc.id = tcard.topic_candidate_id
+          LEFT JOIN drafts draft_raw ON draft_raw.id = (
+            SELECT dr.id
+            FROM drafts dr
+            WHERE dr.topic_card_id = tcard.id AND dr.draft_type = 'raw'
+            ORDER BY dr.id DESC
+            LIMIT 1
+          )
+          LEFT JOIN drafts draft_humanized ON draft_humanized.id = (
+            SELECT dh.id
+            FROM drafts dh
+            WHERE dh.topic_card_id = tcard.id AND dh.draft_type = 'humanized'
+            ORDER BY dh.id DESC
+            LIMIT 1
+          )
+          LEFT JOIN reviews rv ON rv.id = pj.review_id
+          LEFT JOIN publish_attempts pa ON pa.id = (
+            SELECT p2.id
+            FROM publish_attempts p2
+            WHERE p2.publish_job_id = pj.id
+            ORDER BY p2.attempt_no DESC, p2.id DESC
+            LIMIT 1
+          )
+          LEFT JOIN artifacts artifact_latest ON artifact_latest.id = (
+            SELECT a2.id
+            FROM artifacts a2
+            JOIN publish_attempts p3 ON p3.id = a2.publish_attempt_id
+            WHERE p3.publish_job_id = pj.id AND a2.artifact_type = 'screenshot'
+            ORDER BY a2.created_at DESC, a2.id DESC
+            LIMIT 1
+          )`;
+}
+
+function mapJobRow(row: JobRow): JobListItem {
+  return {
+    id: row.id,
+    accountId: row.account_id,
+    topicCardId: row.topic_card_id,
+    reviewId: row.review_id,
+    status: row.status,
+    displayStatus: mapDisplayStatus(row.status),
+    title: row.title,
+    scheduledAt: row.scheduled_at?.toISOString() ?? null,
+    startedAt: row.started_at?.toISOString() ?? null,
+    finishedAt: row.finished_at?.toISOString() ?? null,
+    finalUrl: row.final_url,
+    retryCount: row.retry_count,
+    failureReason: row.failure_reason,
+    lastErrorType: row.last_error_type ?? row.latest_failure_type ?? null,
+    createdAt: row.created_at.toISOString(),
+    updatedAt: row.updated_at.toISOString(),
+    scheduleSlotId: row.schedule_slot_id ?? null,
+    scheduleStatus: row.schedule_status ?? null,
+    currentStage: row.current_stage ?? null,
+    resumeAnchorJson: row.resume_anchor_json ?? null,
+    promptVersionSnapshotJson: row.prompt_version_snapshot_json ?? null,
+    latestAttemptStatus: row.latest_attempt_status ?? null,
+    latestFailureType: row.latest_failure_type ?? null,
+    latestScreenshotPath: row.latest_screenshot_path ?? null
+  };
+}
+
+function mapDisplayStatus(status: JobStatus): JobDisplayStatus {
+  if (status === "queued") {
+    return "queued";
+  }
+
+  if (
+    status === "topic_discovery" ||
+    status === "topic_agent" ||
+    status === "topic_review" ||
+    status === "writer" ||
+    status === "humanizing" ||
+    status === "review_hard_gate" ||
+    status === "review_editorial" ||
+    status === "review_publish"
+  ) {
+    return "reviewing";
+  }
+
+  if (status === "review_passed") {
+    return "ready_to_publish";
+  }
+
+  if (status === "login_checking" || status === "publishing" || status === "publish_verify" || status === "retry_waiting") {
+    return "publishing";
+  }
+
+  if (status === "manual_login_required") {
+    return "manual_login_required";
+  }
+
+  if (status === "published") {
+    return "published";
+  }
+
+  return "publish_failed";
+}
+
+function normalizeMysqlDateTime(value: string | Date | null) {
+  if (!value) {
+    return null;
+  }
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const seconds = String(date.getSeconds()).padStart(2, "0");
+
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+}

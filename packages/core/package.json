@@ -1,0 +1,21 @@
+{
+  "name": "@zhihu-mvp/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/core/src/index.js",
+  "types": "dist/core/src/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@zhihu-mvp/shared": "0.1.0",
+    "dayjs": "^1.11.13",
+    "mysql2": "^3.14.0",
+    "openai": "^4.86.1",
+    "playwright": "^1.51.0",
+    "toml": "^3.0.0",
+    "zod": "^3.24.2"
+  }
+}
