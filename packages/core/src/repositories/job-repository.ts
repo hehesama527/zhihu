@@ -118,20 +118,29 @@ type JobUpdateOptions = {
   lastErrorType?: FailureType | null;
 };
 
+type PreparationQueryOptions = {
+  now?: Date;
+  withinMinutes?: number;
+};
+
 export class JobRepository {
   constructor(private readonly pool: Pool) {}
 
-  async listJobs(): Promise<JobListItem[]> {
+  async listJobs(accountId?: number | null): Promise<JobListItem[]> {
+    const accountFilter = accountId != null ? "WHERE pj.account_id = ?" : "";
+    const params = accountId != null ? [accountId] : [];
     const [rows] = await this.pool.query<JobRow[]>(
       `${buildJobListSql()}
+       ${accountFilter}
        ORDER BY COALESCE(dps.scheduled_at, pj.scheduled_at, pj.created_at) DESC
-       LIMIT 100`
+       LIMIT 100`,
+      params
     );
     return rows.map(mapJobRow);
   }
 
-  async listPublishJobs(): Promise<JobListItem[]> {
-    return this.listJobs();
+  async listPublishJobs(accountId?: number | null): Promise<JobListItem[]> {
+    return this.listJobs(accountId);
   }
 
   async getJobById(jobId: number): Promise<JobDetail | null> {
@@ -217,6 +226,15 @@ export class JobRepository {
     );
   }
 
+  async updateScheduledAt(jobId: number, scheduledAt: string | Date | null) {
+    await this.pool.query(
+      `UPDATE publish_jobs
+       SET scheduled_at = ?
+       WHERE id = ?`,
+      [normalizeMysqlDateTime(scheduledAt), jobId]
+    );
+  }
+
   async updateJobStatus(jobId: number, status: JobStatus, options?: JobUpdateOptions) {
     const hasFailureReason = options ? Object.prototype.hasOwnProperty.call(options, "failureReason") : false;
     const hasFinalUrl = options ? Object.prototype.hasOwnProperty.call(options, "finalUrl") : false;
@@ -296,7 +314,7 @@ export class JobRepository {
     await this.pool.query(`UPDATE publish_jobs SET retry_count = retry_count + 1 WHERE id = ?`, [jobId]);
   }
 
-  async listBlockedJobs(accountId = 1): Promise<JobListItem[]> {
+  async listBlockedJobs(accountId: number): Promise<JobListItem[]> {
     const [rows] = await this.pool.query<JobRow[]>(
       `${buildJobListSql()}
        WHERE pj.account_id = ? AND pj.status = 'manual_login_required'
@@ -306,7 +324,19 @@ export class JobRepository {
     return rows.map(mapJobRow);
   }
 
-  async getJobsNeedingPreparation(limit = 10): Promise<JobListItem[]> {
+  async getJobsNeedingPreparation(limit = 10, options?: PreparationQueryOptions): Promise<JobListItem[]> {
+    const params: Array<number | Date> = [];
+    let scheduleWindowClause = "";
+
+    if (typeof options?.withinMinutes === "number") {
+      const now = options.now ?? new Date();
+      scheduleWindowClause = `
+         AND COALESCE(dps.scheduled_at, pj.scheduled_at, pj.created_at) <= ?`;
+      params.push(addMinutes(now, options.withinMinutes));
+    }
+
+    params.push(limit);
+
     const [rows] = await this.pool.query<JobRow[]>(
       `${buildJobListSql()}
        WHERE pj.status IN (
@@ -320,19 +350,44 @@ export class JobRepository {
          'review_editorial',
          'review_publish'
        )
+       ${scheduleWindowClause}
        ORDER BY COALESCE(dps.scheduled_at, pj.scheduled_at, pj.created_at) ASC
        LIMIT ?`,
-      [limit]
+      params
     );
 
     return rows.map(mapJobRow);
+  }
+
+  async hasScheduledJobsInWindow(input: { start: Date; end: Date }): Promise<boolean> {
+    const [rows] = await this.pool.query<RowDataPacket[]>(
+      `SELECT pj.id
+       FROM publish_jobs pj
+       LEFT JOIN daily_publish_schedule dps ON dps.publish_job_id = pj.id
+       WHERE pj.status NOT IN ('published', 'failed_terminal')
+         AND COALESCE(dps.scheduled_at, pj.scheduled_at) IS NOT NULL
+         AND COALESCE(dps.scheduled_at, pj.scheduled_at) > ?
+         AND COALESCE(dps.scheduled_at, pj.scheduled_at) <= ?
+       ORDER BY COALESCE(dps.scheduled_at, pj.scheduled_at) ASC
+       LIMIT 1`,
+      [input.start, input.end]
+    );
+
+    return rows.length > 0;
   }
 
   async getDueJobs(now = new Date()): Promise<JobListItem[]> {
     const [rows] = await this.pool.query<JobRow[]>(
       `${buildJobListSql()}
        WHERE COALESCE(dps.scheduled_at, pj.scheduled_at, pj.created_at) <= ?
-         AND pj.status IN ('review_passed', 'login_checking', 'retry_waiting', 'manual_login_required')
+         AND pj.status IN (
+           'review_passed',
+           'login_checking',
+           'publishing',
+           'publish_verify',
+           'retry_waiting',
+           'manual_login_required'
+         )
        ORDER BY COALESCE(dps.scheduled_at, pj.scheduled_at, pj.created_at) ASC`,
       [now]
     );
@@ -344,6 +399,7 @@ export class JobRepository {
       `UPDATE publish_jobs
        SET status = 'retry_waiting',
            current_stage = 'retry_waiting',
+           final_url = NULL,
            failure_reason = NULL,
            last_error_type = NULL,
            retry_count = 0,
@@ -684,7 +740,9 @@ function mapJobRow(row: JobRow): JobListItem {
     promptVersionSnapshotJson: row.prompt_version_snapshot_json ?? null,
     latestAttemptStatus: row.latest_attempt_status ?? null,
     latestFailureType: row.latest_failure_type ?? null,
-    latestScreenshotPath: row.latest_screenshot_path ?? null
+    latestScreenshotPath: row.latest_screenshot_path ?? null,
+    questionTitle: row.question_title ?? null,
+    questionUrl: row.question_url ?? null
   };
 }
 
@@ -743,4 +801,8 @@ function normalizeMysqlDateTime(value: string | Date | null) {
   const seconds = String(date.getSeconds()).padStart(2, "0");
 
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+}
+
+function addMinutes(date: Date, minutes: number) {
+  return new Date(date.getTime() + minutes * 60 * 1000);
 }

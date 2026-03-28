@@ -10,7 +10,7 @@ export default async function PublishJobsPage() {
       <section className="page-header">
         <div>
           <h2>Publish Jobs</h2>
-          <p className="muted">查看发布状态、失败分类、最近截图和详情入口。</p>
+          <p className="muted">直接查看发布状态、题目关联、失败分类和最近截图。</p>
         </div>
       </section>
 
@@ -20,9 +20,9 @@ export default async function PublishJobsPage() {
             <thead>
               <tr>
                 <th>任务</th>
-                <th>展示态</th>
+                <th>状态</th>
                 <th>发布时间</th>
-                <th>失败分类</th>
+                <th>失败信息</th>
                 <th>截图</th>
               </tr>
             </thead>
@@ -33,6 +33,7 @@ export default async function PublishJobsPage() {
                     <td>
                       <div className="stack stack--tight">
                         <Link href={`/jobs/${job.id}`}>{job.title ?? `任务 #${job.id}`}</Link>
+                        <span className="muted">{job.questionTitle ?? "题目待绑定"}</span>
                         <span className="muted">#{job.id}</span>
                       </div>
                     </td>
@@ -40,7 +41,12 @@ export default async function PublishJobsPage() {
                       <StatusChip status={job.displayStatus} />
                     </td>
                     <td>{formatTime(job.finishedAt ?? job.scheduledAt)}</td>
-                    <td>{job.latestFailureType ?? job.lastErrorType ?? "-"}</td>
+                    <td>
+                      <div className="stack stack--tight">
+                        <span>{job.latestFailureType ?? job.lastErrorType ?? "-"}</span>
+                        <span className="muted">{job.failureReason ?? "暂无失败原因"}</span>
+                      </div>
+                    </td>
                     <td>{job.latestScreenshotPath ?? "-"}</td>
                   </tr>
                 ))

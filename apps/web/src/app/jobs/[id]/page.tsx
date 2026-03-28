@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { notFound } from "next/navigation";
 import { StatusChip } from "../../../components/status-chip";
 import { getJob, getJobArtifacts, getJobAttempts, getJobSkillRuns, getJobToolTraces } from "../../../lib/api";
@@ -17,6 +17,8 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   if (!job) {
     notFound();
   }
+
+  const writerPromptSnapshot = readWriterPromptSnapshot(job.promptVersionSnapshotJson);
 
   return (
     <div className="stack">
@@ -44,7 +46,8 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
         </article>
 
         <article className="card">
-          <h3>恢复锚点与 Prompt 快照</h3>
+          <h3>恢复锚点 + Prompt 快照</h3>
+          <p>Writer Prompt 快照：{writerPromptSnapshot ? `v${writerPromptSnapshot.versionText} / ${writerPromptSnapshot.labelText}` : "暂无"}</p>
           <pre>{job.resumeAnchorJson ?? "暂无恢复锚点"}</pre>
           <div className="spacer" />
           <pre>{job.promptVersionSnapshotJson ?? "暂无 Prompt 快照"}</pre>
@@ -236,4 +239,31 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
 
 function formatTime(value: string | null) {
   return value ? new Date(value).toLocaleString("zh-CN") : "暂无";
+}
+
+function readWriterPromptSnapshot(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as {
+      writer_agent?: {
+        version?: number | null;
+        label?: string | null;
+      };
+    };
+
+    const writerSnapshot = parsed.writer_agent;
+    if (!writerSnapshot) {
+      return null;
+    }
+
+    return {
+      versionText: writerSnapshot.version ?? "seed",
+      labelText: writerSnapshot.label ?? "未命名版本"
+    };
+  } catch {
+    return null;
+  }
 }

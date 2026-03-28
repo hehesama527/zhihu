@@ -4,6 +4,7 @@ import {
   AccountRepository,
   BrowserSkillService,
   DashboardService,
+  FeishuNotificationService,
   FailureResolutionService,
   HumanizerService,
   JobRepository,
@@ -15,6 +16,7 @@ import {
   ReviewService,
   ScheduleRepository,
   ScheduleService,
+  SessionStateError,
   SessionService,
   TopicBatchPlannerService,
   TopicDiscoveryService,
@@ -29,12 +31,16 @@ import {
 } from "@zhihu-mvp/core";
 import {
   accountRecoveryActionSchema,
+  createAccountSchema,
   createJobSchema,
   createPromptDraftSchema,
+  type FailureType,
   promptSetNameSchema,
   promptTestRunSchema,
   reselectTopicSchema,
+  rescheduleJobSchema,
   retryJobSchema,
+  updateAccountSchema,
   updatePromptDraftSchema
 } from "@zhihu-mvp/shared";
 
@@ -45,10 +51,10 @@ await applySchemaMigrations(pool);
 const promptRepository = new PromptRepository(pool);
 const promptService = new PromptService(promptRepository);
 const llmService = new LlmService(promptRepository);
-const scheduleRepository = new ScheduleRepository(pool);
-const scheduleService = new ScheduleService(scheduleRepository);
-const jobRepository = new JobRepository(pool);
 const accountRepository = new AccountRepository(pool);
+const scheduleRepository = new ScheduleRepository(pool);
+const scheduleService = new ScheduleService(scheduleRepository, accountRepository);
+const jobRepository = new JobRepository(pool);
 const topicRepository = new TopicRepository(pool);
 const topicBatchPlannerService = new TopicBatchPlannerService(llmService, topicRepository);
 const topicReviewService = new TopicReviewService(llmService);
@@ -67,8 +73,15 @@ const browserSkillService = new BrowserSkillService(runtime, jobRepository);
 const sessionService = new SessionService(browserSkillService, llmService);
 const topicDiscoveryService = new TopicDiscoveryService(topicRepository, browserSkillService, sessionService, llmService);
 const publishService = new PublishService(llmService, browserSkillService, sessionService);
+const feishuNotificationService = new FeishuNotificationService();
 const failureResolutionService = new FailureResolutionService(llmService);
-const dashboardService = new DashboardService(accountRepository, scheduleRepository, jobRepository, topicRepository);
+const dashboardService = new DashboardService(
+  accountRepository,
+  scheduleService,
+  scheduleRepository,
+  jobRepository,
+  topicRepository
+);
 const workerRunner = new WorkerRunner(
   scheduleService,
   scheduleRepository,
@@ -79,7 +92,8 @@ const workerRunner = new WorkerRunner(
   jobRepository,
   publishService,
   failureResolutionService,
-  llmService
+  llmService,
+  feishuNotificationService
 );
 
 await app.register(cors, {
@@ -102,6 +116,7 @@ app.setErrorHandler((error, _request, reply) => {
 
 await promptService.bootstrapDefaults();
 await accountRepository.ensureDefaultAccount();
+await accountRepository.normalizeProfileDirs();
 await scheduleService.bootstrapTodaySchedule();
 
 app.get("/health", async () => ({
@@ -109,9 +124,73 @@ app.get("/health", async () => ({
   service: "api"
 }));
 
-app.get("/dashboard/summary", async () => ({
-  summary: await dashboardService.getSummary()
+app.post("/notifications/feishu/test", async () => feishuNotificationService.sendTestNotification());
+
+app.get("/dashboard/summary", async (request) => ({
+  summary: await dashboardService.getSummary(parseOptionalAccountIdFromQuery(request))
 }));
+
+app.get("/accounts", async () => ({
+  accounts: await accountRepository.listAccounts()
+}));
+
+app.post("/accounts", async (request) => {
+  const body = createAccountSchema.parse(request.body ?? {});
+  const account = await accountRepository.createAccount({
+    name: body.name.trim(),
+    zhihuUserName: body.zhihuUserName ? body.zhihuUserName.trim() : null
+  });
+
+  if (!account) {
+    throw new Error("账号已创建，但读取账号信息失败。");
+  }
+
+  await scheduleService.bootstrapTodaySchedule();
+
+  return {
+    ok: true,
+    account
+  };
+});
+
+app.delete("/accounts/:id", async (request) => {
+  const params = request.params as { id: string };
+  const accountId = Number(params.id);
+
+  if (!Number.isInteger(accountId) || accountId <= 0) {
+    const error = new Error("账号 ID 不合法。") as Error & { statusCode?: number };
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const existingAccount = await accountRepository.getAccount(accountId);
+  if (!existingAccount) {
+    const error = new Error("账号不存在。") as Error & { statusCode?: number };
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const result = await accountRepository.deleteAccount(accountId);
+  if (!result.deleted) {
+    const summary = result.summary;
+    const reasons = [
+      summary?.publishJobCount ? `${summary.publishJobCount} 个任务` : null,
+      summary?.topicCandidateCount ? `${summary.topicCandidateCount} 条题目候选` : null,
+      summary?.answeredTopicCount ? `${summary.answeredTopicCount} 条历史回答记录` : null
+    ].filter(Boolean);
+    const detail = reasons.length ? `当前账号下还有 ${reasons.join("、")}。` : "";
+    const error = new Error(`只有空账号才允许删除。${detail}`.trim()) as Error & { statusCode?: number };
+    error.statusCode = 409;
+    throw error;
+  }
+
+  return {
+    ok: true,
+    deletedAccountId: accountId,
+    cleanupWarning: result.cleanupWarning,
+    nextAccountId: (await accountRepository.getPrimaryAccount())?.id ?? null
+  };
+});
 
 app.get("/schedule/today", async () => ({
   slots: await scheduleService.getTodaySchedule()
@@ -121,16 +200,30 @@ app.get("/schedule/week", async () => ({
   slots: await scheduleService.getWeekSchedule()
 }));
 
-app.get("/topics", async () => ({
-  topics: await topicRepository.listTopics()
+app.get("/topics", async (request) => ({
+  topics: await topicRepository.listTopics(100, parseOptionalAccountIdFromQuery(request))
 }));
 
-app.get("/topics/batch-plan", async () => ({
-  plan: await topicBatchPlannerService.getCurrentBatchPlan()
-}));
+app.get("/topics/batch-plan", async (request) => {
+  const accountId = parseOptionalAccountIdFromQuery(request);
+  const account = accountId ? await accountRepository.getAccount(accountId) : null;
 
-app.get("/drafts", async () => ({
-  drafts: await topicRepository.listDrafts()
+  return {
+    plan: await topicBatchPlannerService.getCurrentBatchPlan(undefined, {
+      accountId,
+      accountContext: account
+        ? {
+            accountId: account.id,
+            accountName: account.name,
+            zhihuUserName: account.zhihuUserName
+          }
+        : null
+    })
+  };
+});
+
+app.get("/drafts", async (request) => ({
+  drafts: await topicRepository.listDrafts(100, parseOptionalAccountIdFromQuery(request))
 }));
 
 app.get("/jobs", async () => ({
@@ -148,10 +241,17 @@ app.post("/jobs", async (request) => {
     throw new Error("指定账号不存在。");
   }
 
+  const promptSnapshot = await llmService.getPromptSnapshotForAccount({
+    writerPromptVersionId: account.writerPromptVersionId
+  });
+  const promptSnapshotJson = JSON.stringify(promptSnapshot);
+
   const slot =
-    (await scheduleService.getNextUnassignedSlot()) ??
+    (await scheduleService.getNextUnassignedSlot(body.accountId)) ??
     ({
-      id: await scheduleRepository.createAdhocSlot(new Date(), "pending"),
+      id: await scheduleRepository.createAdhocSlot(body.accountId, new Date(), "pending"),
+      accountId: body.accountId,
+      accountName: account.name,
       scheduledAt: new Date().toISOString(),
       status: "pending",
       publishJobId: null,
@@ -160,7 +260,8 @@ app.post("/jobs", async (request) => {
 
   const jobId = await jobRepository.createQueuedJob({
     accountId: body.accountId,
-    scheduledAt: slot.scheduledAt
+    scheduledAt: slot.scheduledAt,
+    promptVersionSnapshotJson: promptSnapshotJson
   });
   await scheduleRepository.assignJobToSlot(slot.id, jobId);
 
@@ -176,6 +277,40 @@ app.post("/jobs", async (request) => {
     currentStage: job.currentStage ?? "queued",
     scheduledAt: job.scheduledAt,
     message: "任务已创建，等待 Worker 推进选题、写作、审核和发布。"
+  };
+});
+
+app.patch("/accounts/:id", async (request) => {
+  const params = request.params as { id: string };
+  const accountId = Number(params.id);
+  const body = updateAccountSchema.parse(request.body ?? {});
+
+  const existingAccount = await accountRepository.getAccount(accountId);
+  if (!existingAccount) {
+    throw new Error("账号不存在。");
+  }
+
+  const writerPromptVersionId = body.writerPromptVersionId;
+  if (writerPromptVersionId != null) {
+    const promptVersion = await promptRepository.getPromptVersionById(writerPromptVersionId);
+    if (!promptVersion || promptVersion.set_name !== "writer_agent") {
+      throw new Error("只能绑定 writer_agent 的 Prompt 版本。");
+    }
+  }
+
+  await accountRepository.updateAccount(accountId, {
+    ...(body.name !== undefined ? { name: body.name.trim() } : {}),
+    ...(Object.prototype.hasOwnProperty.call(body, "zhihuUserName")
+      ? { zhihuUserName: body.zhihuUserName ? body.zhihuUserName.trim() : null }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(body, "writerPromptVersionId")
+      ? { writerPromptVersionId: body.writerPromptVersionId ?? null }
+      : {})
+  });
+
+  return {
+    ok: true,
+    account: await accountRepository.getAccount(accountId)
   };
 });
 
@@ -228,6 +363,37 @@ app.post("/jobs/:id/retry", async (request) => {
   return { ok: true };
 });
 
+app.patch("/jobs/:id/schedule", async (request) => {
+  const params = request.params as { id: string };
+  const body = rescheduleJobSchema.parse(request.body ?? {});
+  const jobId = Number(params.id);
+  const job = await jobRepository.getJobById(jobId);
+  if (!job) {
+    throw new Error("任务不存在。");
+  }
+  if (job.status === "published") {
+    throw new Error("已发布任务不允许再调整发布时间。");
+  }
+
+  const scheduledAt = new Date(body.scheduledAt);
+  if (Number.isNaN(scheduledAt.valueOf())) {
+    throw new Error("scheduledAt 必须是有效的时间。");
+  }
+
+  await jobRepository.updateScheduledAt(jobId, scheduledAt);
+
+  const slot = await scheduleRepository.getSlotByJobId(jobId);
+  if (slot) {
+    await scheduleRepository.updateSlotScheduledAt(slot.id, scheduledAt);
+  }
+
+  return {
+    ok: true,
+    job: await jobRepository.getJobById(jobId),
+    slot: slot ? await scheduleRepository.getSlotById(slot.id) : null
+  };
+});
+
 app.post("/jobs/:id/reselect-topic", async (request) => {
   const params = request.params as { id: string };
   reselectTopicSchema.parse(request.body ?? {});
@@ -237,14 +403,30 @@ app.post("/jobs/:id/reselect-topic", async (request) => {
     throw new Error("任务不存在。");
   }
 
+  const account = await accountRepository.getAccount(job.accountId);
+
   const promptSnapshot =
-    safeParseJson(job.promptVersionSnapshotJson ?? "", await llmService.getActivePromptSnapshot()) ??
-    (await llmService.getActivePromptSnapshot());
+    safeParseJson(
+      job.promptVersionSnapshotJson ?? "",
+      await llmService.getPromptSnapshotForAccount({
+        writerPromptVersionId: account?.writerPromptVersionId ?? null
+      })
+    ) ??
+    (await llmService.getPromptSnapshotForAccount({
+      writerPromptVersionId: account?.writerPromptVersionId ?? null
+    }));
   const promptSnapshotJson = JSON.stringify(promptSnapshot);
 
   const replacement = await topicPipelineService.prepareNextPublishableDraft({
     publishJobId: jobId,
     promptSnapshot,
+    accountContext: account
+      ? {
+          accountId: account.id,
+          accountName: account.name,
+          zhihuUserName: account.zhihuUserName
+        }
+      : null,
     onStage: async (stage) => {
       await jobRepository.updateJobStatus(jobId, stage, {
         currentStage: stage,
@@ -274,8 +456,8 @@ app.post("/jobs/:id/reselect-topic", async (request) => {
   return { ok: true };
 });
 
-app.get("/account/status", async () => ({
-  account: await dashboardService.getAccountView()
+app.get("/account/status", async (request) => ({
+  account: await dashboardService.getAccountView(parseOptionalAccountIdFromQuery(request))
 }));
 
 app.post("/account/manual-login/start", async (request) => {
@@ -310,7 +492,7 @@ app.post("/account/recovery/confirm", async (request) => {
   const body = accountRecoveryActionSchema.parse(request.body);
   const account = await accountRepository.getAccount(body.accountId);
   if (!account?.profileDir) {
-    throw new Error("账号没有配置浏览器 Profile 目录。");
+    throw new Error("\u8d26\u53f7\u6ca1\u6709\u914d\u7f6e\u6d4f\u89c8\u5668 Profile \u76ee\u5f55\u3002");
   }
 
   const targetJob = body.publishJobId ? await jobRepository.getJobById(body.publishJobId) : null;
@@ -318,14 +500,18 @@ app.post("/account/recovery/confirm", async (request) => {
   const promptSnapshot = targetJob?.promptVersionSnapshotJson
     ? safeParseJson(targetJob.promptVersionSnapshotJson, {})
     : undefined;
+  const checkUrl = getRecoveryCheckUrl();
 
   try {
     const recovery = await sessionService.confirmRecoveredSession({
       accountId: body.accountId,
       profileDir: account.profileDir,
+      checkUrl,
       returnUrl,
       publishJobId: body.publishJobId ?? null,
-      promptSnapshot
+      promptSnapshot,
+      expectedZhihuUserName: account.zhihuUserName,
+      accountName: account.name
     });
 
     await accountRepository.markActive(body.accountId);
@@ -348,20 +534,20 @@ app.post("/account/recovery/confirm", async (request) => {
     return {
       ok: true,
       blockedByLogin: false,
-      message: "已确认登录状态，系统将继续推进流程。",
+      message: "\u5df2\u786e\u8ba4\u767b\u5f55\u72b6\u6001\uff0c\u7cfb\u7edf\u5c06\u7ee7\u7eed\u63a8\u8fdb\u6d41\u7a0b\u3002",
       sessionState: recovery.sessionState,
       summary
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "仍未检测到可复用的登录状态。";
-    await accountRepository.markManualLoginRequired(body.accountId, message);
+    const classifiedError = classifyRecoveryError(error);
+    await accountRepository.markManualLoginRequired(body.accountId, classifiedError.message);
 
     if (body.publishJobId) {
       await jobRepository.updateJobStatus(body.publishJobId, "manual_login_required", {
         currentStage: "manual_login_required",
-        failureReason: message,
+        failureReason: classifiedError.message,
         resumeAnchorJson: returnUrl ? JSON.stringify({ stage: "login_checking", currentUrl: returnUrl }) : null,
-        lastErrorType: "login_required"
+        lastErrorType: classifiedError.failureType
       });
 
       const slot = await scheduleRepository.getSlotByJobId(body.publishJobId);
@@ -372,8 +558,8 @@ app.post("/account/recovery/confirm", async (request) => {
 
     return {
       ok: false,
-      blockedByLogin: true,
-      message,
+      blockedByLogin: classifiedError.blockedByLogin,
+      message: classifiedError.message,
       summary: null
     };
   }
@@ -443,9 +629,128 @@ function getReturnUrl(job: Awaited<ReturnType<JobRepository["getJobById"]>>) {
   }
 
   const resumeAnchor = safeParseJson<Record<string, unknown>>(job.resumeAnchorJson ?? "{}", {});
-  if (typeof resumeAnchor.currentUrl === "string" && resumeAnchor.currentUrl) {
-    return resumeAnchor.currentUrl;
+  const resumeUrl = sanitizeNavigationUrl(typeof resumeAnchor.currentUrl === "string" ? resumeAnchor.currentUrl : null);
+  if (resumeUrl) {
+    return resumeUrl;
   }
 
-  return job.questionUrl ?? null;
+  return sanitizeNavigationUrl(job.questionUrl ?? null);
+}
+
+function getRecoveryCheckUrl() {
+  return `${getAppConfig().zhihuBaseUrl}/settings/account`;
+}
+
+function classifyRecoveryError(error: unknown) {
+  if (error instanceof SessionStateError) {
+    return {
+      blockedByLogin: true,
+      failureType: mapSessionFailureType(error.sessionState),
+      message: error.message
+    } satisfies {
+      blockedByLogin: boolean;
+      failureType: FailureType;
+      message: string;
+    };
+  }
+
+  const rawMessage = error instanceof Error ? error.message : "\u767b\u5f55\u6062\u590d\u68c0\u67e5\u5931\u8d25\u3002";
+
+  if (isBrowserProfileConflictError(rawMessage)) {
+    return {
+      blockedByLogin: false,
+      failureType: "network_or_page_error",
+      message: `这个账号的 Edge 登录窗口还开着，请先手动关闭该窗口，等 2 到 3 秒让登录态落盘后再点“验证”。为避免刚登录的会话丢失，系统不会再强制关闭浏览器。原始错误：${rawMessage}`
+    } satisfies {
+      blockedByLogin: boolean;
+      failureType: FailureType;
+      message: string;
+    };
+  }
+
+  if (isBrowserLaunchError(rawMessage)) {
+    return {
+      blockedByLogin: false,
+      failureType: "network_or_page_error",
+      message: `\u6062\u590d\u68c0\u67e5\u65f6\u6d4f\u89c8\u5668\u542f\u52a8\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\uff1b\u5982\u679c\u4ecd\u7136\u5931\u8d25\uff0c\u8bf7\u91cd\u65b0\u6253\u5f00\u624b\u52a8\u767b\u5f55\u7a97\u53e3\u3002\u539f\u59cb\u9519\u8bef\uff1a${rawMessage}`
+    } satisfies {
+      blockedByLogin: boolean;
+      failureType: FailureType;
+      message: string;
+    };
+  }
+
+  return {
+    blockedByLogin: false,
+    failureType: "unknown_failure",
+    message: rawMessage
+  } satisfies {
+    blockedByLogin: boolean;
+    failureType: FailureType;
+    message: string;
+  };
+}
+
+function isBrowserProfileConflictError(message: string) {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("profile") &&
+      (normalized.includes("occupied") || normalized.includes("占用")) ||
+    normalized.includes("launchpersistentcontext") &&
+      (normalized.includes("target page, context or browser has been closed") ||
+        normalized.includes("user-data-dir") ||
+        normalized.includes("user data directory") ||
+        normalized.includes("browser logs"))
+  );
+}
+
+function mapSessionFailureType(sessionState: SessionStateError["sessionState"]): FailureType {
+  if (sessionState === "session_expired") {
+    return "session_expired";
+  }
+
+  if (sessionState === "account_identity_mismatch") {
+    return "account_identity_mismatch";
+  }
+
+  return "login_required";
+}
+
+function isBrowserLaunchError(message: string) {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("launchpersistentcontext") ||
+    normalized.includes("browser has been closed") ||
+    normalized.includes("executable doesn't exist") ||
+    normalized.includes("failed to launch")
+  );
+}
+
+function sanitizeNavigationUrl(value: string | null | undefined) {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  if (!trimmed) {
+    return null;
+  }
+
+  if (/^(about|chrome|edge):/i.test(trimmed)) {
+    return null;
+  }
+
+  if (trimmed.includes("about:blank")) {
+    return null;
+  }
+
+  if (!/^https?:\/\//i.test(trimmed)) {
+    return null;
+  }
+
+  return trimmed;
+}
+
+function parseOptionalAccountIdFromQuery(requestLike: { query?: unknown }) {
+  const query = (requestLike.query ?? {}) as { accountId?: unknown };
+  const rawValue = Array.isArray(query.accountId) ? query.accountId[0] : query.accountId;
+  const value = typeof rawValue === "string" ? Number(rawValue) : typeof rawValue === "number" ? rawValue : NaN;
+
+  return Number.isInteger(value) && value > 0 ? value : undefined;
 }

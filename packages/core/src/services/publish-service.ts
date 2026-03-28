@@ -67,6 +67,8 @@ export class PublishService {
     publishAttemptId: number | null;
     promptSnapshot?: PromptSnapshotMap | null;
     resumeAnchor?: PublishResumeAnchor | null;
+    expectedZhihuUserName?: string | null;
+    accountName?: string | null;
   }) {
     const traceBase = {
       sessionKey: input.sessionKey,
@@ -76,6 +78,18 @@ export class PublishService {
       traceGroupId: input.traceGroupId,
       agentName: "publish_agent"
     } as const;
+
+    await this.sessionService.ensureLoggedIn({
+      sessionKey: input.sessionKey,
+      profileDir: input.profileDir,
+      traceGroupId: `${input.traceGroupId}-preflight`,
+      stage: "login_checking",
+      publishJobId: input.publishJobId,
+      publishAttemptId: input.publishAttemptId,
+      promptSnapshot: input.promptSnapshot,
+      expectedZhihuUserName: input.expectedZhihuUserName ?? null,
+      accountName: input.accountName ?? null
+    });
 
     const targetUrl = input.resumeAnchor?.currentUrl ?? normalizeZhihuQuestionUrl(input.questionUrl) ?? input.questionUrl;
 
@@ -410,6 +424,8 @@ export class PublishService {
     currentUrl: string;
     content: string;
     promptSnapshot?: PromptSnapshotMap | null;
+    expectedZhihuUserName?: string | null;
+    accountName?: string | null;
   }) {
     const traceBase = {
       sessionKey: input.sessionKey,
@@ -419,6 +435,18 @@ export class PublishService {
       traceGroupId: input.traceGroupId,
       agentName: "publish_agent"
     } as const;
+
+    await this.sessionService.ensureLoggedIn({
+      sessionKey: input.sessionKey,
+      profileDir: input.profileDir,
+      traceGroupId: `${input.traceGroupId}-preflight`,
+      stage: "login_checking",
+      publishJobId: input.publishJobId,
+      publishAttemptId: input.publishAttemptId,
+      promptSnapshot: input.promptSnapshot,
+      expectedZhihuUserName: input.expectedZhihuUserName ?? null,
+      accountName: input.accountName ?? null
+    });
 
     await this.browserSkillService.open(
       {
@@ -687,11 +715,22 @@ export class PublishService {
       findMatchedExpectedSignals(snapshot, contentSignals.expectedSignals)
     );
     const hasPublishedSemantic = hasPublishedAnswerSemantic(snapshot);
+    const editorStillVisible = hasEditorSemantic(snapshot);
+    const answerDetailUrl = isAnswerDetailUrl(currentUrl);
 
     const decision =
       result.decision === "SUCCESS" || result.decision === "CONTENT_RISK" || result.decision === "UNCERTAIN"
         ? result.decision
         : "UNCERTAIN";
+
+    if (decision === "SUCCESS" && editorStillVisible && !answerDetailUrl) {
+      return {
+        decision: "UNCERTAIN" as const,
+        confidence: "low" as const,
+        matchedSignals,
+        reason: "页面仍停留在编辑态，且当前 URL 不是回答详情页，暂时不能判定为发布成功。"
+      };
+    }
 
     if (decision === "SUCCESS" && matchedSignals.length === 0 && !hasPublishedSemantic) {
       return {
@@ -1083,6 +1122,10 @@ function hasEditorSemantic(snapshot: PageSnapshot) {
 function hasSubmitSemantic(snapshot: PageSnapshot) {
   const combined = [snapshot.title, ...snapshot.visibleTexts, ...snapshot.buttons, ...snapshot.links.map((item) => item.text)].join(" ");
   return ["发布回答", "提交回答"].some((text) => combined.includes(text));
+}
+
+function isAnswerDetailUrl(url: string) {
+  return /\/answer\/\d+/i.test(url);
 }
 
 function findFirstMatchingText(values: string[], candidates: string[]) {

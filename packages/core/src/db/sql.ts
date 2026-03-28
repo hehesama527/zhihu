@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS accounts (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   zhihu_user_name VARCHAR(255) NULL,
+  writer_prompt_version_id INT NULL,
   status VARCHAR(64) NOT NULL DEFAULT 'active',
   status_reason LONGTEXT NULL,
   profile_dir VARCHAR(512) NULL,
@@ -16,6 +17,7 @@ CREATE TABLE IF NOT EXISTS accounts (
 
 CREATE TABLE IF NOT EXISTS topic_candidates (
   id INT AUTO_INCREMENT PRIMARY KEY,
+  account_id INT NULL,
   question_url VARCHAR(1024) NOT NULL,
   question_title VARCHAR(512) NOT NULL,
   source_type VARCHAR(64) NOT NULL,
@@ -31,7 +33,8 @@ CREATE TABLE IF NOT EXISTS topic_candidates (
   checked_at DATETIME NULL,
   status VARCHAR(64) NOT NULL DEFAULT 'new',
   duplication_fingerprint_text LONGTEXT NULL,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_topic_candidates_account_status (account_id, status, validity_status, created_at)
 );
 
 CREATE TABLE IF NOT EXISTS topic_cards (
@@ -92,6 +95,29 @@ CREATE TABLE IF NOT EXISTS publish_jobs (
   CONSTRAINT fk_publish_jobs_account FOREIGN KEY (account_id) REFERENCES accounts(id),
   CONSTRAINT fk_publish_jobs_topic_card FOREIGN KEY (topic_card_id) REFERENCES topic_cards(id),
   CONSTRAINT fk_publish_jobs_review FOREIGN KEY (review_id) REFERENCES reviews(id)
+);
+
+CREATE TABLE IF NOT EXISTS answered_topics (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  account_id INT NULL,
+  question_url_hash CHAR(64) NOT NULL,
+  question_url VARCHAR(1024) NOT NULL,
+  question_title VARCHAR(512) NOT NULL,
+  topic_candidate_id INT NULL,
+  topic_card_id INT NULL,
+  review_id INT NULL,
+  publish_job_id INT NULL,
+  answer_url VARCHAR(1024) NULL,
+  answered_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_answered_topics_question_hash (question_url_hash),
+  INDEX idx_answered_topics_account_answered (account_id, answered_at),
+  INDEX idx_answered_topics_publish_job (publish_job_id),
+  CONSTRAINT fk_answered_topics_account FOREIGN KEY (account_id) REFERENCES accounts(id),
+  CONSTRAINT fk_answered_topics_candidate FOREIGN KEY (topic_candidate_id) REFERENCES topic_candidates(id),
+  CONSTRAINT fk_answered_topics_topic_card FOREIGN KEY (topic_card_id) REFERENCES topic_cards(id),
+  CONSTRAINT fk_answered_topics_review FOREIGN KEY (review_id) REFERENCES reviews(id),
+  CONSTRAINT fk_answered_topics_job FOREIGN KEY (publish_job_id) REFERENCES publish_jobs(id)
 );
 
 CREATE TABLE IF NOT EXISTS publish_attempts (
@@ -160,13 +186,16 @@ CREATE TABLE IF NOT EXISTS skill_runs (
 
 CREATE TABLE IF NOT EXISTS daily_publish_schedule (
   id INT AUTO_INCREMENT PRIMARY KEY,
+  account_id INT NULL,
   schedule_date DATE NOT NULL,
   scheduled_at DATETIME NOT NULL,
   status VARCHAR(64) NOT NULL DEFAULT 'pending',
   publish_job_id INT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY uniq_schedule_slot (schedule_date, scheduled_at),
-  CONSTRAINT fk_schedule_job FOREIGN KEY (publish_job_id) REFERENCES publish_jobs(id)
+  UNIQUE KEY uniq_schedule_slot_account (account_id, schedule_date, scheduled_at),
+  INDEX idx_schedule_account_date (account_id, schedule_date, scheduled_at),
+  CONSTRAINT fk_schedule_job FOREIGN KEY (publish_job_id) REFERENCES publish_jobs(id),
+  CONSTRAINT fk_schedule_account FOREIGN KEY (account_id) REFERENCES accounts(id)
 );
 
 CREATE TABLE IF NOT EXISTS prompt_sets (
@@ -221,6 +250,16 @@ const columnMigrations: ColumnMigration[] = [
     table: "accounts",
     column: "status_reason",
     ddl: "ALTER TABLE accounts ADD COLUMN status_reason LONGTEXT NULL AFTER status"
+  },
+  {
+    table: "accounts",
+    column: "writer_prompt_version_id",
+    ddl: "ALTER TABLE accounts ADD COLUMN writer_prompt_version_id INT NULL AFTER zhihu_user_name"
+  },
+  {
+    table: "topic_candidates",
+    column: "account_id",
+    ddl: "ALTER TABLE topic_candidates ADD COLUMN account_id INT NULL AFTER id"
   },
   {
     table: "topic_candidates",
@@ -291,6 +330,11 @@ const columnMigrations: ColumnMigration[] = [
     table: "publish_jobs",
     column: "last_error_type",
     ddl: "ALTER TABLE publish_jobs ADD COLUMN last_error_type VARCHAR(128) NULL AFTER last_trace_id"
+  },
+  {
+    table: "daily_publish_schedule",
+    column: "account_id",
+    ddl: "ALTER TABLE daily_publish_schedule ADD COLUMN account_id INT NULL AFTER id"
   }
 ];
 
@@ -299,6 +343,38 @@ const rawMigrations = [
   "ALTER TABLE publish_jobs MODIFY COLUMN review_id INT NULL",
   "ALTER TABLE publish_jobs MODIFY COLUMN title VARCHAR(512) NULL",
   "ALTER TABLE publish_jobs MODIFY COLUMN status VARCHAR(64) NOT NULL DEFAULT 'queued'"
+];
+
+type IndexMigration = {
+  table: string;
+  index: string;
+  ddl: string;
+};
+
+const dropIndexMigrations: IndexMigration[] = [
+  {
+    table: "daily_publish_schedule",
+    index: "uniq_schedule_slot",
+    ddl: "ALTER TABLE daily_publish_schedule DROP INDEX uniq_schedule_slot"
+  }
+];
+
+const addIndexMigrations: IndexMigration[] = [
+  {
+    table: "topic_candidates",
+    index: "idx_topic_candidates_account_status",
+    ddl: "ALTER TABLE topic_candidates ADD INDEX idx_topic_candidates_account_status (account_id, status, validity_status, created_at)"
+  },
+  {
+    table: "daily_publish_schedule",
+    index: "uniq_schedule_slot_account",
+    ddl: "ALTER TABLE daily_publish_schedule ADD UNIQUE KEY uniq_schedule_slot_account (account_id, schedule_date, scheduled_at)"
+  },
+  {
+    table: "daily_publish_schedule",
+    index: "idx_schedule_account_date",
+    ddl: "ALTER TABLE daily_publish_schedule ADD INDEX idx_schedule_account_date (account_id, schedule_date, scheduled_at)"
+  }
 ];
 
 export async function applySchemaMigrations(pool: Pool) {
@@ -322,4 +398,75 @@ export async function applySchemaMigrations(pool: Pool) {
   for (const ddl of rawMigrations) {
     await pool.query(ddl);
   }
+
+  for (const migration of dropIndexMigrations) {
+    if (await hasIndex(pool, migration.table, migration.index)) {
+      await pool.query(migration.ddl);
+    }
+  }
+
+  for (const migration of addIndexMigrations) {
+    if (!(await hasIndex(pool, migration.table, migration.index))) {
+      await pool.query(migration.ddl);
+    }
+  }
+
+  await backfillAnsweredTopics(pool);
+}
+
+async function hasIndex(pool: Pool, table: string, index: string) {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT COUNT(*) AS count
+     FROM INFORMATION_SCHEMA.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?
+       AND INDEX_NAME = ?`,
+    [table, index]
+  );
+
+  return Number(rows[0]?.count ?? 0) > 0;
+}
+
+async function backfillAnsweredTopics(pool: Pool) {
+  await pool.query(
+    `INSERT INTO answered_topics (
+       account_id,
+       question_url_hash,
+       question_url,
+       question_title,
+       topic_candidate_id,
+       topic_card_id,
+       review_id,
+       publish_job_id,
+       answer_url,
+       answered_at
+     )
+     SELECT
+       pj.account_id,
+       LOWER(SHA2(tc.question_url, 256)),
+       tc.question_url,
+       tc.question_title,
+       tc.id,
+       tcard.id,
+       pj.review_id,
+       pj.id,
+       pj.final_url,
+       COALESCE(pj.finished_at, pj.updated_at, pj.created_at)
+     FROM publish_jobs pj
+     JOIN topic_cards tcard ON tcard.id = pj.topic_card_id
+     JOIN topic_candidates tc ON tc.id = tcard.topic_candidate_id
+     WHERE pj.status = 'published'
+       AND tc.question_url IS NOT NULL
+       AND tc.question_url <> ''
+     ON DUPLICATE KEY UPDATE
+       account_id = COALESCE(VALUES(account_id), answered_topics.account_id),
+       question_url = VALUES(question_url),
+       question_title = VALUES(question_title),
+       topic_candidate_id = COALESCE(VALUES(topic_candidate_id), answered_topics.topic_candidate_id),
+       topic_card_id = COALESCE(VALUES(topic_card_id), answered_topics.topic_card_id),
+       review_id = COALESCE(VALUES(review_id), answered_topics.review_id),
+       publish_job_id = COALESCE(VALUES(publish_job_id), answered_topics.publish_job_id),
+       answer_url = COALESCE(VALUES(answer_url), answered_topics.answer_url),
+       answered_at = GREATEST(answered_topics.answered_at, VALUES(answered_at))`
+  );
 }

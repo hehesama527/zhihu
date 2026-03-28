@@ -1,14 +1,15 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { AccountStatusView } from "@zhihu-mvp/shared";
-import { useState, useTransition } from "react";
+import type { AccountStatusView, PromptSetView } from "@zhihu-mvp/shared";
+import { useEffect, useState, useTransition } from "react";
 import { fetchClientResponse, getClientApiBaseUrl } from "../lib/http";
 import { StatusChip } from "./status-chip";
 
 type AccountPanelProps = {
   account: AccountStatusView | null;
+  writerPromptSet: PromptSetView | null;
 };
 
 type RecoveryResponse = {
@@ -26,10 +27,21 @@ type ManualLoginStartResponse = {
   loginUrl?: string | null;
 };
 
-export function AccountPanel({ account }: AccountPanelProps) {
+export function AccountPanel({ account, writerPromptSet }: AccountPanelProps) {
   const router = useRouter();
   const [message, setMessage] = useState("");
+  const [draftName, setDraftName] = useState(account?.name ?? "");
+  const [draftZhihuUserName, setDraftZhihuUserName] = useState(account?.zhihuUserName ?? "");
+  const [draftWriterPromptVersionId, setDraftWriterPromptVersionId] = useState<string>(
+    account?.writerPromptVersionId ? String(account.writerPromptVersionId) : ""
+  );
   const [pending, startTransition] = useTransition();
+
+  useEffect(() => {
+    setDraftName(account?.name ?? "");
+    setDraftZhihuUserName(account?.zhihuUserName ?? "");
+    setDraftWriterPromptVersionId(account?.writerPromptVersionId ? String(account.writerPromptVersionId) : "");
+  }, [account?.id, account?.name, account?.zhihuUserName, account?.writerPromptVersionId]);
 
   if (!account) {
     return <p className="muted">还没有账号信息。</p>;
@@ -37,9 +49,9 @@ export function AccountPanel({ account }: AccountPanelProps) {
 
   const currentAccount = account;
 
-  async function call<T>(path: string, body: unknown) {
+  async function call<T>(path: string, body: unknown, method = "POST") {
     const { response, text, payload } = await fetchClientResponse(path, {
-      method: "POST",
+      method,
       headers: {
         "content-type": "application/json"
       },
@@ -57,6 +69,56 @@ export function AccountPanel({ account }: AccountPanelProps) {
     return payload as T;
   }
 
+  async function saveAccountProfile() {
+    const name = draftName.trim();
+    if (!name) {
+      throw new Error("账号名称不能为空。");
+    }
+
+    const zhihuUserName = draftZhihuUserName.trim();
+    await call<{ ok?: boolean }>(
+      `/accounts/${currentAccount.id}`,
+      {
+        name,
+        zhihuUserName: zhihuUserName ? zhihuUserName : null,
+        writerPromptVersionId: draftWriterPromptVersionId ? Number(draftWriterPromptVersionId) : null
+      },
+      "PATCH"
+    );
+
+    router.refresh();
+    setMessage("账号资料已更新。后续新建 job 会自动固化当前账号绑定的 Writer Prompt 快照。");
+  }
+
+  async function deleteCurrentAccount() {
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(`确定删除账号“${currentAccount.name}”吗？只有空账号才能删除，这个操作不可恢复。`)
+    ) {
+      return;
+    }
+
+    const { response, text, payload } = await fetchClientResponse(`/accounts/${currentAccount.id}`, {
+      method: "DELETE"
+    });
+
+    if (!response.ok) {
+      const errorMessage =
+        typeof payload.error === "object" && payload.error && "message" in payload.error
+          ? String((payload.error as { message?: unknown }).message ?? "")
+          : text;
+      throw new Error(errorMessage || "删除账号失败。");
+    }
+
+    const result = payload as {
+      ok?: boolean;
+      nextAccountId?: number | null;
+    };
+
+    router.push(result.nextAccountId ? `/account?accountId=${result.nextAccountId}` : "/account");
+    router.refresh();
+  }
+
   async function startManualLogin(publishJobId?: number) {
     const payload = await call<ManualLoginStartResponse>("/account/manual-login/start", {
       accountId: currentAccount.id,
@@ -68,7 +130,7 @@ export function AccountPanel({ account }: AccountPanelProps) {
     const browserMode = payload.browserMode ?? "浏览器";
     const loginUrl = payload.loginUrl ?? "https://www.zhihu.com/signin";
     setMessage(
-      `${browserMode} 登录窗口已打开。请在同一个 Profile 里完成知乎登录，然后点击“登录成功，继续下一步”。如果打开的是空白页，可以直接在地址栏粘贴：${loginUrl}`
+      `${browserMode} 登录窗口已打开。请在同一个 Profile 里完成知乎登录，登录成功后先手动关闭这个窗口，等 2 到 3 秒再点击“登录成功，继续下一步”。为避免刚登录的会话丢失，系统不会再强制关闭浏览器。如果打开的是空白页，可以直接在地址栏粘贴：${loginUrl}`
     );
   }
 
@@ -79,6 +141,11 @@ export function AccountPanel({ account }: AccountPanelProps) {
     });
 
     router.refresh();
+
+    if (payload.ok === false) {
+      setMessage(payload.message ?? "确认恢复失败。");
+      return;
+    }
 
     if (payload.blockedByLogin || payload.summary?.blockedByLogin) {
       setMessage(payload.message ?? payload.summary?.message ?? "系统复检后仍未检测到知乎登录态，请先手动登录。");
@@ -91,6 +158,11 @@ export function AccountPanel({ account }: AccountPanelProps) {
         : "账号状态已恢复，系统会继续推进阻塞中的任务。"
     );
   }
+
+  const selectedWriterPrompt =
+    writerPromptSet?.versions.find((version) => version.id === Number(draftWriterPromptVersionId || "0")) ?? null;
+  const activeWriterPrompt =
+    writerPromptSet?.versions.find((version) => version.id === writerPromptSet.activeVersionId) ?? null;
 
   return (
     <div className="stack">
@@ -113,6 +185,16 @@ export function AccountPanel({ account }: AccountPanelProps) {
               <strong>当前需要恢复登录</strong>
               <p className="helper-text">{currentAccount.recoveryReason ?? "系统检测到账号需要重新确认登录状态。"}</p>
               <p className="helper-text">恢复后系统会先做一次真实会话检查，通过后才会继续推进任务。</p>
+            </div>
+          </div>
+        ) : null}
+
+        {currentAccount.profileDirWarning ? (
+          <div className="card" style={{ marginTop: "1rem", borderColor: "rgba(168, 75, 47, 0.24)" }}>
+            <div className="stack stack--tight">
+              <strong>Profile 目录需要留意</strong>
+              <p className="helper-text">{currentAccount.profileDirWarning}</p>
+              <p className="helper-text">这类账号在正式测试前最好先重新确认一次绑定关系，必要时重建 Profile 后再重新登录。</p>
             </div>
           </div>
         ) : null}
@@ -157,6 +239,92 @@ export function AccountPanel({ account }: AccountPanelProps) {
         <p className="helper-text">当前前端请求的 API：{getClientApiBaseUrl()}</p>
 
         {message ? <p className="helper-text">{message}</p> : null}
+      </div>
+
+      <div className="card">
+        <div className="stack stack--tight">
+          <h3>账号资料</h3>
+          <p className="helper-text">
+            账号名称继续作为测试阶段的人设名来源。Writer Prompt 绑定则决定这个账号后续新建 job 使用哪一版写作
+            Prompt。
+          </p>
+        </div>
+
+        <div className="grid grid--two" style={{ marginTop: "1rem" }}>
+          <label className="field">
+            <span>账号名称 / 人设名</span>
+            <input value={draftName} onChange={(event) => setDraftName(event.target.value)} placeholder="例如：二丫" />
+          </label>
+
+          <label className="field">
+            <span>知乎账号名</span>
+            <input
+              value={draftZhihuUserName}
+              onChange={(event) => setDraftZhihuUserName(event.target.value)}
+              placeholder="例如：二丫聊副业"
+            />
+          </label>
+
+          <label className="field">
+            <span>Writer Prompt 版本</span>
+            <select value={draftWriterPromptVersionId} onChange={(event) => setDraftWriterPromptVersionId(event.target.value)}>
+              <option value="">跟随当前全局生效版本</option>
+              {writerPromptSet?.versions.map((version) => (
+                <option key={version.id} value={version.id}>
+                  v{version.version} / {version.label} / {version.status}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div className="stack stack--tight">
+          <p className="helper-text">
+            当前绑定：
+            {selectedWriterPrompt
+              ? ` v${selectedWriterPrompt.version} / ${selectedWriterPrompt.label}`
+              : activeWriterPrompt
+                ? ` 跟随全局 active：v${activeWriterPrompt.version} / ${activeWriterPrompt.label}`
+                : " 暂无可用 Writer Prompt"}
+          </p>
+          <p className="helper-text">注意：这个绑定只影响之后新建的 job；已创建的 job 会继续使用自己的 Prompt 快照。</p>
+        </div>
+
+        <div className="button-row">
+          <button
+            className="button"
+            disabled={pending}
+            onClick={() =>
+              startTransition(async () => {
+                try {
+                  await saveAccountProfile();
+                } catch (error) {
+                  setMessage(error instanceof Error ? error.message : "保存账号资料失败。");
+                }
+              })
+            }
+          >
+            {pending ? "处理中..." : "保存账号资料"}
+          </button>
+
+          <button
+            className="button button--ghost button--danger"
+            disabled={pending}
+            onClick={() =>
+              startTransition(async () => {
+                try {
+                  await deleteCurrentAccount();
+                } catch (error) {
+                  setMessage(error instanceof Error ? error.message : "删除账号失败。");
+                }
+              })
+            }
+          >
+            {pending ? "处理中..." : "删除当前账号"}
+          </button>
+        </div>
+
+        <p className="helper-text">删除规则：只有还没有任务、题目候选和历史回答记录的空账号才允许删除。</p>
       </div>
 
       <div className="card">

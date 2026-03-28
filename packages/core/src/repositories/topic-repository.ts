@@ -1,8 +1,10 @@
 import type { DraftListItem, TopicListItem, TopicPriority, TopicValidityStatus } from "@zhihu-mvp/shared";
 import type { Pool, ResultSetHeader, RowDataPacket } from "mysql2/promise";
+import { hashZhihuQuestionUrl, normalizeZhihuQuestionUrl } from "../utils/zhihu-url.js";
 
 type TopicCandidateRow = RowDataPacket & {
   id: number;
+  account_id: number | null;
   question_url: string;
   question_title: string;
   source_type: string;
@@ -53,6 +55,21 @@ type ReviewRow = RowDataPacket & {
   created_at: Date;
 };
 
+type AnsweredTopicRow = RowDataPacket & {
+  id: number;
+  account_id: number | null;
+  question_url_hash: string;
+  question_url: string;
+  question_title: string;
+  topic_candidate_id: number | null;
+  topic_card_id: number | null;
+  review_id: number | null;
+  publish_job_id: number | null;
+  answer_url: string | null;
+  answered_at: Date;
+  created_at: Date;
+};
+
 type DraftListRow = RowDataPacket & {
   id: number;
   topic_card_id: number;
@@ -71,14 +88,15 @@ export class TopicRepository {
   constructor(private readonly pool: Pool) {}
 
   async createOrGetCandidate(input: {
+    accountId: number;
     questionUrl: string;
     questionTitle: string;
     sourceType: string;
     sourceMetadata: unknown;
   }) {
     const [existing] = await this.pool.query<TopicCandidateRow[]>(
-      `SELECT * FROM topic_candidates WHERE question_url = ? LIMIT 1`,
-      [input.questionUrl]
+      `SELECT * FROM topic_candidates WHERE account_id = ? AND question_url = ? LIMIT 1`,
+      [input.accountId, input.questionUrl]
     );
     if (existing[0]) {
       const mergedMetadata = mergeSourceMetadata(existing[0].source_metadata_text, input.sourceType, input.sourceMetadata);
@@ -91,14 +109,16 @@ export class TopicRepository {
       );
       return {
         id: existing[0].id,
-        isNew: false
+        isNew: false,
+        status: existing[0].status
       };
     }
 
     const [result] = await this.pool.query<ResultSetHeader>(
-      `INSERT INTO topic_candidates (question_url, question_title, source_type, source_metadata_text)
-       VALUES (?, ?, ?, ?)`,
+      `INSERT INTO topic_candidates (account_id, question_url, question_title, source_type, source_metadata_text)
+       VALUES (?, ?, ?, ?, ?)`,
       [
+        input.accountId,
         input.questionUrl,
         input.questionTitle,
         input.sourceType,
@@ -107,28 +127,33 @@ export class TopicRepository {
     );
     return {
       id: result.insertId,
-      isNew: true
+      isNew: true,
+      status: "new"
     };
   }
 
-  async listOpenCandidates(limit = 20) {
+  async listOpenCandidates(limit = 20, accountId?: number | null) {
+    const accountFilter = accountId != null ? "AND tc.account_id = ?" : "";
+    const params = accountId != null ? [accountId, limit] : [limit];
     const [rows] = await this.pool.query<TopicCandidateRow[]>(
-      `SELECT *
-       FROM topic_candidates
-       WHERE status IN ('new', 'processing')
-         AND validity_status IN ('unchecked', 'valid')
+      `SELECT tc.*
+       FROM topic_candidates tc
+       WHERE tc.status IN ('new', 'processing')
+         AND tc.validity_status IN ('unchecked', 'valid')
+         ${buildAnsweredTopicExclusionClause("tc")}
+         ${accountFilter}
        ORDER BY
-         CASE priority
+         CASE tc.priority
            WHEN 'P0' THEN 1
            WHEN 'P1' THEN 2
            WHEN 'P2' THEN 3
            WHEN 'SKIP' THEN 9
            ELSE 4
          END ASC,
-         COALESCE(fit_score, 0) DESC,
-         created_at ASC
+         COALESCE(tc.fit_score, 0) DESC,
+         tc.created_at ASC
        LIMIT ?`,
-      [limit]
+      params
     );
 
     return rows.map((row) => ({
@@ -151,7 +176,9 @@ export class TopicRepository {
     }));
   }
 
-  async listTopics(limit = 100): Promise<TopicListItem[]> {
+  async listTopics(limit = 100, accountId?: number | null): Promise<TopicListItem[]> {
+    const accountFilter = accountId != null ? "WHERE tc.account_id = ?" : "";
+    const params = accountId != null ? [accountId, limit] : [limit];
     const [rows] = await this.pool.query<TopicCandidateRow[]>(
       `SELECT tc.*, tcard.summary_text AS topic_summary
        FROM topic_candidates tc
@@ -162,9 +189,10 @@ export class TopicRepository {
          ORDER BY t2.id DESC
          LIMIT 1
        )
+       ${accountFilter}
        ORDER BY tc.created_at DESC
        LIMIT ?`,
-      [limit]
+      params
     );
 
     return rows.map((row) => ({
@@ -186,7 +214,9 @@ export class TopicRepository {
     }));
   }
 
-  async listDrafts(limit = 100): Promise<DraftListItem[]> {
+  async listDrafts(limit = 100, accountId?: number | null): Promise<DraftListItem[]> {
+    const accountFilter = accountId != null ? "WHERE tc.account_id = ?" : "";
+    const params = accountId != null ? [accountId, limit] : [limit];
     const [rows] = await this.pool.query<DraftListRow[]>(
       `SELECT
          rv.id,
@@ -211,9 +241,10 @@ export class TopicRepository {
          ORDER BY dr.id DESC
          LIMIT 1
        )
+       ${accountFilter}
        ORDER BY rv.created_at DESC, rv.id DESC
        LIMIT ?`,
-      [limit]
+      params
     );
 
     return rows.map((row) => ({
@@ -232,24 +263,53 @@ export class TopicRepository {
     }));
   }
 
-  async countOpenCandidates() {
+  async countOpenCandidates(accountId?: number | null) {
+    const accountFilter = accountId != null ? "AND tc.account_id = ?" : "";
+    const params = accountId != null ? [accountId] : [];
     const [rows] = await this.pool.query<RowDataPacket[]>(
       `SELECT COUNT(*) AS count
-       FROM topic_candidates
-       WHERE status IN ('new', 'processing')
-         AND validity_status IN ('unchecked', 'valid')`
+       FROM topic_candidates tc
+       WHERE tc.status IN ('new', 'processing')
+         AND tc.validity_status IN ('unchecked', 'valid')
+         ${buildAnsweredTopicExclusionClause("tc")}
+         ${accountFilter}`,
+      params
     );
     return Number(rows[0]?.count ?? 0);
   }
 
-  async countActiveCandidates() {
+  async countActiveCandidates(accountId?: number | null) {
+    const accountFilter = accountId != null ? "AND tc.account_id = ?" : "";
+    const params = accountId != null ? [accountId] : [];
     const [rows] = await this.pool.query<RowDataPacket[]>(
       `SELECT COUNT(*) AS count
-       FROM topic_candidates
-       WHERE status IN ('new', 'processing', 'accepted')
-         AND validity_status IN ('unchecked', 'valid')`
+       FROM topic_candidates tc
+       WHERE tc.status IN ('new', 'processing', 'accepted')
+         AND tc.validity_status IN ('unchecked', 'valid')
+         ${buildAnsweredTopicExclusionClause("tc")}
+         ${accountFilter}`,
+      params
     );
     return Number(rows[0]?.count ?? 0);
+  }
+
+  async markAnsweredHistoryCandidates(accountId?: number | null) {
+    const accountFilter = accountId != null ? "AND tc.account_id = ?" : "";
+    const params = accountId != null ? [accountId] : [];
+
+    await this.pool.query(
+      `UPDATE topic_candidates tc
+       JOIN answered_topics at ON at.question_url_hash = LOWER(SHA2(tc.question_url, 256))
+       SET tc.status = 'blocked_duplicate',
+           tc.duplication_fingerprint_text = CASE
+             WHEN at.answer_url IS NOT NULL AND at.answer_url <> ''
+               THEN CONCAT('历史已回答题目，脚本已直接过滤：', at.question_title, '；已发布链接：', at.answer_url)
+             ELSE CONCAT('历史已回答题目，脚本已直接过滤：', at.question_title)
+           END
+       WHERE tc.status IN ('new', 'processing', 'accepted')
+         ${accountFilter}`,
+      params
+    );
   }
 
   async reconcileAcceptedCandidateStatuses() {
@@ -490,16 +550,19 @@ export class TopicRepository {
     return result.insertId;
   }
 
-  async getRecentPublishedTopicFingerprints(limit = 10) {
+  async getRecentPublishedTopicFingerprints(limit = 10, accountId?: number | null) {
+    const accountFilter = accountId != null ? "AND pj.account_id = ?" : "";
+    const params = accountId != null ? [accountId, limit] : [limit];
     const [rows] = await this.pool.query<RowDataPacket[]>(
       `SELECT tc.question_title, tcard.summary_text, tcard.output_json
        FROM publish_jobs pj
        JOIN topic_cards tcard ON tcard.id = pj.topic_card_id
        JOIN topic_candidates tc ON tc.id = tcard.topic_candidate_id
        WHERE pj.status = 'published'
+         ${accountFilter}
        ORDER BY pj.finished_at DESC, pj.created_at DESC
        LIMIT ?`,
-      [limit]
+      params
     );
 
     return rows.map((row) => ({
@@ -528,6 +591,98 @@ export class TopicRepository {
       content: (row.approved_content as string | null) ?? "",
       draftJson: row.output_json as string
     }));
+  }
+
+  async findAnsweredTopicByQuestionUrl(questionUrl: string | null | undefined) {
+    const normalizedQuestionUrl = normalizeZhihuQuestionUrl(questionUrl);
+    const questionUrlHash = hashZhihuQuestionUrl(normalizedQuestionUrl);
+    if (!normalizedQuestionUrl || !questionUrlHash) {
+      return null;
+    }
+
+    const [rows] = await this.pool.query<AnsweredTopicRow[]>(
+      `SELECT *
+       FROM answered_topics
+       WHERE question_url_hash = ?
+       LIMIT 1`,
+      [questionUrlHash]
+    );
+
+    const row = rows[0];
+    if (!row) {
+      return null;
+    }
+
+    return {
+      id: row.id,
+      accountId: row.account_id,
+      questionUrl: row.question_url,
+      questionTitle: row.question_title,
+      topicCandidateId: row.topic_candidate_id,
+      topicCardId: row.topic_card_id,
+      reviewId: row.review_id,
+      publishJobId: row.publish_job_id,
+      answerUrl: row.answer_url,
+      answeredAt: row.answered_at.toISOString(),
+      duplicateReason: buildAnsweredTopicDuplicateReason(row.question_title, row.answer_url)
+    };
+  }
+
+  async upsertAnsweredTopic(input: {
+    accountId?: number | null;
+    questionUrl: string;
+    questionTitle: string;
+    topicCandidateId?: number | null;
+    topicCardId?: number | null;
+    reviewId?: number | null;
+    publishJobId?: number | null;
+    answerUrl?: string | null;
+    answeredAt?: string | Date | null;
+  }) {
+    const normalizedQuestionUrl = normalizeZhihuQuestionUrl(input.questionUrl);
+    const questionUrlHash = hashZhihuQuestionUrl(normalizedQuestionUrl);
+    if (!normalizedQuestionUrl || !questionUrlHash) {
+      return false;
+    }
+
+    await this.pool.query(
+      `INSERT INTO answered_topics (
+         account_id,
+         question_url_hash,
+         question_url,
+         question_title,
+         topic_candidate_id,
+         topic_card_id,
+         review_id,
+         publish_job_id,
+         answer_url,
+         answered_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         account_id = COALESCE(VALUES(account_id), account_id),
+         question_url = VALUES(question_url),
+         question_title = VALUES(question_title),
+         topic_candidate_id = COALESCE(VALUES(topic_candidate_id), topic_candidate_id),
+         topic_card_id = COALESCE(VALUES(topic_card_id), topic_card_id),
+         review_id = COALESCE(VALUES(review_id), review_id),
+         publish_job_id = COALESCE(VALUES(publish_job_id), publish_job_id),
+         answer_url = COALESCE(VALUES(answer_url), answer_url),
+         answered_at = GREATEST(answered_at, VALUES(answered_at))`,
+      [
+        input.accountId ?? null,
+        questionUrlHash,
+        normalizedQuestionUrl,
+        input.questionTitle.trim() || normalizedQuestionUrl,
+        input.topicCandidateId ?? null,
+        input.topicCardId ?? null,
+        input.reviewId ?? null,
+        input.publishJobId ?? null,
+        input.answerUrl ?? null,
+        normalizeOptionalDate(input.answeredAt) ?? new Date()
+      ]
+    );
+
+    return true;
   }
 
   async getTopicCardById(topicCardId: number) {
@@ -596,4 +751,29 @@ function safeParseRecord(value: string | null) {
   } catch {
     return {};
   }
+}
+
+function buildAnsweredTopicExclusionClause(candidateAlias: string) {
+  return `AND NOT EXISTS (
+    SELECT 1
+    FROM answered_topics at
+    WHERE at.question_url_hash = LOWER(SHA2(${candidateAlias}.question_url, 256))
+  )`;
+}
+
+function buildAnsweredTopicDuplicateReason(questionTitle: string, answerUrl: string | null) {
+  if (answerUrl) {
+    return `历史已回答题目，脚本已直接过滤：${questionTitle}；已发布链接：${answerUrl}`;
+  }
+
+  return `历史已回答题目，脚本已直接过滤：${questionTitle}`;
+}
+
+function normalizeOptionalDate(value: string | Date | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }

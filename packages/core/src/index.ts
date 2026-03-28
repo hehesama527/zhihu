@@ -10,6 +10,7 @@ export * from "./repositories/schedule-repository.js";
 export * from "./repositories/topic-repository.js";
 export * from "./services/dashboard-service.js";
 export * from "./services/browser-skill-service.js";
+export * from "./services/feishu-notification-service.js";
 export * from "./services/failure-resolution-service.js";
 export * from "./services/humanizer-service.js";
 export * from "./services/llm-service.js";

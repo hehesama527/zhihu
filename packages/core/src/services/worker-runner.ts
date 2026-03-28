@@ -1,15 +1,18 @@
-import type { FailureType, JobDetail, JobListItem, PromptSnapshotMap, WorkerTickSummary } from "@zhihu-mvp/shared";
+import type { FailureType, JobDetail, JobListItem, JobStage, PromptSnapshotMap, WorkerTickSummary } from "@zhihu-mvp/shared";
 import { AccountRepository } from "../repositories/account-repository.js";
 import { JobRepository } from "../repositories/job-repository.js";
 import { ScheduleRepository } from "../repositories/schedule-repository.js";
 import { TopicRepository } from "../repositories/topic-repository.js";
+import { getElapsedMs, logDebugTiming } from "../utils/debug-timing.js";
 import { safeParseJson } from "../utils/json.js";
 import { hasManualLoginLock } from "../utils/manual-login-lock.js";
+import { FeishuNotificationService } from "./feishu-notification-service.js";
 import { FailureResolutionService } from "./failure-resolution-service.js";
 import { LlmService } from "./llm-service.js";
 import { PublishFlowError, PublishService, type PublishResumeAnchor } from "./publish-service.js";
 import { ScheduleService } from "./schedule-service.js";
 import { SessionStateError } from "./session-service.js";
+import type { AccountPromptContext } from "./account-prompt-context.js";
 import { TopicDiscoveryService } from "./topic-discovery-service.js";
 import { TopicPipelineService } from "./topic-pipeline-service.js";
 
@@ -17,6 +20,11 @@ type TickBranchResult = {
   blockedByLogin: boolean;
   message: string | null;
 };
+
+type WorkerAccount = NonNullable<Awaited<ReturnType<AccountRepository["getAccount"]>>>;
+const MAX_PREPARE_JOBS_PER_TICK = 3;
+const PREPARE_WINDOW_MINUTES = 120;
+const HARVEST_SKIP_WINDOW_MINUTES = 30;
 
 export class WorkerRunner {
   constructor(
@@ -29,120 +37,227 @@ export class WorkerRunner {
     private readonly jobRepository: JobRepository,
     private readonly publishService: PublishService,
     private readonly failureResolutionService: FailureResolutionService,
-    private readonly llmService: LlmService
+    private readonly llmService: LlmService,
+    private readonly feishuNotificationService: FeishuNotificationService
   ) {}
 
   async tick(): Promise<WorkerTickSummary> {
+    const tickStartedAt = Date.now();
+    logDebugTiming("worker.tick", "start");
+
     const generatedSlots = await this.scheduleService.bootstrapTodaySchedule();
-    const account = await this.accountRepository.getAccount();
-    if (!account) {
-      throw new Error("默认账号不存在，无法启动 Worker。");
+    const accounts = await this.accountRepository.listAccounts();
+    if (!accounts.length) {
+      throw new Error("没有可运行账号，无法启动 Worker。");
     }
 
-    const manualLoginLocked = await hasManualLoginLock(account.id);
-    if (account.status === "manual_login_required" || manualLoginLocked) {
-      return {
-        generatedSlots,
-        harvestedCandidates: 0,
-        preparedJobs: 0,
-        processedJobs: 0,
-        blockedByLogin: true,
-        accountStatus: account.status,
-        message:
+    const accountsById = new Map<number, WorkerAccount>(accounts.map((account) => [account.id, account]));
+    const blockedAccountIds = new Set<number>();
+    const blockedMessages: string[] = [];
+    const runnableAccounts: WorkerAccount[] = [];
+
+    for (const account of accounts) {
+      const manualLoginLocked = await hasManualLoginLock(account.id);
+      if (isLoginBlockedAccount(account) || manualLoginLocked) {
+        blockedAccountIds.add(account.id);
+        blockedMessages.push(
           account.statusReason ??
-          (manualLoginLocked
-            ? "当前账号正在人工登录处理中，请完成登录后再点击确认恢复。"
-            : "当前账号需要人工恢复登录后才能继续执行。")
-      };
+            (manualLoginLocked
+              ? `账号「${account.name}」正在等待人工登录完成。`
+              : `账号「${account.name}」需要先恢复登录态。`)
+        );
+        continue;
+      }
+
+      runnableAccounts.push(account);
     }
 
-    await this.fillScheduleSlots(account.id);
+    for (const account of runnableAccounts) {
+      if (!account.profileDir) {
+        continue;
+      }
 
+      await this.fillScheduleSlots(account);
+    }
+    logDebugTiming("worker.tick", "filled_schedule_slots", {
+      elapsedMs: getElapsedMs(tickStartedAt),
+      runnableAccounts: runnableAccounts.length
+    });
+
+    const dueJobs = await this.jobRepository.getDueJobs();
+    const hasDuePublishJobs = dueJobs.length > 0;
+    logDebugTiming("worker.tick", "loaded_due_jobs", {
+      elapsedMs: getElapsedMs(tickStartedAt),
+      dueJobs: dueJobs.map((job) => ({ id: job.id, status: job.status, scheduledAt: job.scheduledAt }))
+    });
+    const processResult = await this.processDueJobs(dueJobs, accountsById, blockedAccountIds, blockedMessages);
+    logDebugTiming("worker.tick", "processed_due_jobs", {
+      elapsedMs: getElapsedMs(tickStartedAt),
+      processedJobs: processResult.processedJobs
+    });
     let harvestedCandidates = 0;
-    if (account.profileDir) {
-      try {
-        harvestedCandidates = await this.topicDiscoveryService.harvestCandidates({
-          accountId: account.id,
-          profileDir: account.profileDir
+    const harvestCheckStart = new Date();
+    const hasImminentJobs = hasDuePublishJobs
+      ? true
+      : await this.jobRepository.hasScheduledJobsInWindow({
+          start: harvestCheckStart,
+          end: addMinutes(harvestCheckStart, HARVEST_SKIP_WINDOW_MINUTES)
         });
-      } catch (error) {
-        if (error instanceof SessionStateError) {
-          await this.pauseAccountForLogin(account.id, error.message, {
-            failureType: error.sessionState === "session_expired" ? "session_expired" : "login_required"
-          });
+    logDebugTiming("worker.tick", "resolved_harvest_window", {
+      elapsedMs: getElapsedMs(tickStartedAt),
+      hasImminentJobs,
+      hasDuePublishJobs
+    });
 
-          return {
-            generatedSlots,
-            harvestedCandidates: 0,
-            preparedJobs: 0,
-            processedJobs: 0,
-            blockedByLogin: true,
-            accountStatus: "manual_login_required",
-            message: error.message
-          };
+    if (!hasImminentJobs) {
+      for (const account of runnableAccounts) {
+        if (!account.profileDir || blockedAccountIds.has(account.id)) {
+          continue;
         }
 
-        console.error("[worker] topic discovery failed", error);
+        try {
+          const harvestStartedAt = Date.now();
+          logDebugTiming("worker.tick", "harvest_start", {
+            accountId: account.id
+          });
+          harvestedCandidates += await this.topicDiscoveryService.harvestCandidates({
+            accountId: account.id,
+            profileDir: account.profileDir,
+            accountContext: toAccountPromptContext(account)
+          });
+          logDebugTiming("worker.tick", "harvest_done", {
+            accountId: account.id,
+            elapsedMs: getElapsedMs(harvestStartedAt),
+            harvestedCandidates
+          });
+        } catch (error) {
+          if (error instanceof SessionStateError) {
+            await this.pauseAccountForLogin(account.id, error.message, {
+              failureType: mapSessionFailureType(error.sessionState),
+              triggerStage: "topic_discovery"
+            });
+            blockedAccountIds.add(account.id);
+            blockedMessages.push(error.message);
+            accountsById.set(account.id, {
+              ...account,
+              status: "manual_login_required",
+              statusReason: error.message
+            });
+            continue;
+          }
+
+          console.error("[worker] topic discovery failed", error);
+        }
       }
     }
+    logDebugTiming("worker.tick", "finished_harvest", {
+      elapsedMs: getElapsedMs(tickStartedAt),
+      harvestedCandidates
+    });
 
-    const prepareResult = await this.prepareQueuedJobs();
-    if (prepareResult.blockedByLogin) {
-      return {
-        generatedSlots,
-        harvestedCandidates,
-        preparedJobs: prepareResult.preparedJobs,
-        processedJobs: 0,
-        blockedByLogin: true,
-        accountStatus: "manual_login_required",
-        message: prepareResult.message
-      };
-    }
+    const prepareResult = hasDuePublishJobs
+      ? { preparedJobs: 0 }
+      : await this.prepareQueuedJobs(accountsById, blockedAccountIds, blockedMessages);
+    const blockedByLogin = blockedAccountIds.size > 0;
+    logDebugTiming("worker.tick", "finished_prepare", {
+      elapsedMs: getElapsedMs(tickStartedAt),
+      preparedJobs: prepareResult.preparedJobs,
+      blockedAccounts: blockedAccountIds.size
+    });
 
-    const processResult = await this.processDueJobs();
-
-    return {
+    const summary = {
       generatedSlots,
       harvestedCandidates,
       preparedJobs: prepareResult.preparedJobs,
       processedJobs: processResult.processedJobs,
-      blockedByLogin: processResult.blockedByLogin,
-      accountStatus: processResult.blockedByLogin ? "manual_login_required" : "active",
-      message: processResult.message
+      blockedByLogin,
+      accountStatus: resolveTickAccountStatus(accounts.length, blockedAccountIds.size),
+      message: buildBlockedSummary(accounts.length, blockedAccountIds.size, blockedMessages)
     };
+
+    logDebugTiming("worker.tick", "done", {
+      elapsedMs: getElapsedMs(tickStartedAt),
+      summary
+    });
+
+    return summary;
   }
 
-  private async fillScheduleSlots(accountId: number) {
+  private async fillScheduleSlots(account: WorkerAccount) {
+    const startedAt = Date.now();
     let createdJobs = 0;
 
     while (true) {
-      const slot = await this.scheduleService.getNextUnassignedSlot();
+      const slot = await this.scheduleService.getNextUnassignedSlot(account.id);
       if (!slot) {
         break;
       }
 
+      const promptSnapshot = await this.llmService.getPromptSnapshotForAccount({
+        writerPromptVersionId: account.writerPromptVersionId
+      });
+      const promptSnapshotJson = JSON.stringify(promptSnapshot);
+
       const jobId = await this.jobRepository.createQueuedJob({
-        accountId,
-        scheduledAt: slot.scheduledAt
+        accountId: account.id,
+        scheduledAt: slot.scheduledAt,
+        promptVersionSnapshotJson: promptSnapshotJson
       });
       await this.scheduleRepository.assignJobToSlot(slot.id, jobId);
       createdJobs += 1;
     }
 
+    logDebugTiming("worker.fillScheduleSlots", "done", {
+      accountId: account.id,
+      createdJobs,
+      elapsedMs: getElapsedMs(startedAt)
+    });
+
     return createdJobs;
   }
 
-  private async prepareQueuedJobs(): Promise<{ preparedJobs: number } & TickBranchResult> {
-    const jobs = await this.jobRepository.getJobsNeedingPreparation(10);
+  private async prepareQueuedJobs(
+    accountsById: Map<number, WorkerAccount>,
+    blockedAccountIds: Set<number>,
+    blockedMessages: string[]
+  ): Promise<{ preparedJobs: number }> {
+    const startedAt = Date.now();
+    const jobs = await this.jobRepository.getJobsNeedingPreparation(MAX_PREPARE_JOBS_PER_TICK, {
+      now: new Date(),
+      withinMinutes: PREPARE_WINDOW_MINUTES
+    });
+    logDebugTiming("worker.prepareQueuedJobs", "loaded_jobs", {
+      elapsedMs: getElapsedMs(startedAt),
+      jobs: jobs.map((job) => ({ id: job.id, accountId: job.accountId, status: job.status, scheduledAt: job.scheduledAt }))
+    });
     let preparedJobs = 0;
 
     for (const job of jobs) {
+      const account = accountsById.get(job.accountId);
+      if (!account || blockedAccountIds.has(job.accountId) || isLoginBlockedAccount(account)) {
+        continue;
+      }
+
       try {
-        const promptContext = await this.ensurePromptSnapshot(job);
+        const jobStartedAt = Date.now();
+        logDebugTiming("worker.prepareQueuedJobs", "job_start", {
+          jobId: job.id,
+          accountId: job.accountId,
+          status: job.status,
+          scheduledAt: job.scheduledAt
+        });
+        const promptContext = await this.ensurePromptSnapshot(job, account);
         const preparedDraft = await this.topicPipelineService.prepareNextPublishableDraft({
           publishJobId: job.id,
           promptSnapshot: promptContext.promptSnapshot,
+          accountContext: toAccountPromptContext(account),
           onStage: async (stage) => {
+            logDebugTiming("worker.prepareQueuedJobs", "job_stage", {
+              jobId: job.id,
+              accountId: job.accountId,
+              stage,
+              elapsedMs: getElapsedMs(jobStartedAt)
+            });
             await this.jobRepository.updateJobStatus(job.id, stage, {
               currentStage: stage,
               promptVersionSnapshotJson: promptContext.promptSnapshotJson,
@@ -159,7 +274,12 @@ export class WorkerRunner {
             failureReason: "当前没有可用选题，等待下一轮采题后重试。",
             lastErrorType: null
           });
-          break;
+          logDebugTiming("worker.prepareQueuedJobs", "job_no_candidate", {
+            jobId: job.id,
+            accountId: job.accountId,
+            elapsedMs: getElapsedMs(jobStartedAt)
+          });
+          continue;
         }
 
         await this.jobRepository.replaceJobPayload(job.id, {
@@ -169,19 +289,41 @@ export class WorkerRunner {
           promptVersionSnapshotJson: promptContext.promptSnapshotJson
         });
         preparedJobs += 1;
+        logDebugTiming("worker.prepareQueuedJobs", "job_ready", {
+          jobId: job.id,
+          accountId: job.accountId,
+          topicCardId: preparedDraft.topicCardId,
+          reviewId: preparedDraft.reviewId,
+          elapsedMs: getElapsedMs(jobStartedAt)
+        });
       } catch (error) {
         if (error instanceof SessionStateError) {
           await this.pauseAccountForLogin(job.accountId, error.message, {
-            failureType: error.sessionState === "session_expired" ? "session_expired" : "login_required"
+            jobId: job.id,
+            slotId: job.scheduleSlotId,
+            failureType: mapSessionFailureType(error.sessionState),
+            triggerStage: job.currentStage ?? "queued"
           });
-
-          return {
-            preparedJobs,
-            blockedByLogin: true,
+          blockedAccountIds.add(job.accountId);
+          blockedMessages.push(error.message);
+          accountsById.set(job.accountId, {
+            ...account,
+            status: "manual_login_required",
+            statusReason: error.message
+          });
+          logDebugTiming("worker.prepareQueuedJobs", "job_blocked_by_login", {
+            jobId: job.id,
+            accountId: job.accountId,
             message: error.message
-          };
+          });
+          continue;
         }
 
+        logDebugTiming("worker.prepareQueuedJobs", "job_failed", {
+          jobId: job.id,
+          accountId: job.accountId,
+          error: error instanceof Error ? error.message : String(error)
+        });
         await this.failJob(
           job.id,
           job.scheduleSlotId,
@@ -191,45 +333,76 @@ export class WorkerRunner {
       }
     }
 
-    return {
+    logDebugTiming("worker.prepareQueuedJobs", "done", {
       preparedJobs,
-      blockedByLogin: false,
-      message: null
-    };
+      elapsedMs: getElapsedMs(startedAt)
+    });
+
+    return { preparedJobs };
   }
 
-  private async processDueJobs(): Promise<{ processedJobs: number } & TickBranchResult> {
-    const dueJobs = await this.jobRepository.getDueJobs();
+  private async processDueJobs(
+    dueJobs: JobListItem[],
+    accountsById: Map<number, WorkerAccount>,
+    blockedAccountIds: Set<number>,
+    blockedMessages: string[]
+  ): Promise<{ processedJobs: number }> {
+    const startedAt = Date.now();
+    logDebugTiming("worker.processDueJobs", "start", {
+      dueJobs: dueJobs.map((job) => ({ id: job.id, accountId: job.accountId, status: job.status, scheduledAt: job.scheduledAt }))
+    });
     let processedJobs = 0;
 
     for (const job of dueJobs) {
-      const account = await this.accountRepository.getAccount(job.accountId);
-      if (!account || !account.profileDir) {
+      if (blockedAccountIds.has(job.accountId)) {
         continue;
       }
 
-      const result = await this.executeJob(job, account.profileDir);
+      const account =
+        accountsById.get(job.accountId) ??
+        (await this.accountRepository.getAccount(job.accountId)) ??
+        null;
+      if (!account || isLoginBlockedAccount(account) || !account.profileDir) {
+        continue;
+      }
+
+      accountsById.set(account.id, account);
+      const result = await this.executeJob(job, account);
       processedJobs += 1;
+      logDebugTiming("worker.processDueJobs", "job_processed", {
+        jobId: job.id,
+        accountId: job.accountId,
+        blockedByLogin: result.blockedByLogin,
+        elapsedMs: getElapsedMs(startedAt)
+      });
 
       if (result.blockedByLogin) {
-        return {
-          processedJobs,
-          blockedByLogin: true,
-          message: result.message
-        };
+        blockedAccountIds.add(job.accountId);
+        blockedMessages.push(result.message ?? `账号 #${job.accountId} 需要人工登录恢复。`);
+        accountsById.set(job.accountId, {
+          ...account,
+          status: "manual_login_required",
+          statusReason: result.message
+        });
       }
     }
 
-    return {
+    logDebugTiming("worker.processDueJobs", "done", {
       processedJobs,
-      blockedByLogin: false,
-      message: null
-    };
+      elapsedMs: getElapsedMs(startedAt)
+    });
+
+    return { processedJobs };
   }
 
-  private async executeJob(job: JobListItem, profileDir: string): Promise<TickBranchResult> {
+  private async executeJob(job: JobListItem, account: WorkerAccount): Promise<TickBranchResult> {
     let jobDetail = await this.jobRepository.getJobById(job.id);
     const slot = await this.scheduleRepository.getSlotByJobId(job.id);
+    const profileDir = account.profileDir;
+
+    if (!profileDir) {
+      return { blockedByLogin: false, message: null };
+    }
 
     if (!jobDetail || !jobDetail.questionUrl || !jobDetail.questionTitle) {
       await this.failJob(job.id, slot?.id ?? null, "network_or_page_error", "任务缺少完整的题目信息。");
@@ -244,11 +417,11 @@ export class WorkerRunner {
       return { blockedByLogin: false, message: null };
     }
 
-    const promptContext = await this.ensurePromptSnapshot(jobDetail);
+    const promptContext = await this.ensurePromptSnapshot(jobDetail, account);
     let promptSnapshot = promptContext.promptSnapshot;
     let retryCount = job.retryCount;
     let rewriteCount = 0;
-    const sessionKey = `publish-job-${job.id}`;
+    const sessionKey = `publish-account-${job.accountId}-job-${job.id}`;
     const baseTraceGroupId = `job-${job.id}-${Date.now()}`;
 
     await this.jobRepository.updateJobStatus(job.id, "publishing", {
@@ -297,43 +470,28 @@ export class WorkerRunner {
           publishJobId: job.id,
           publishAttemptId: attemptId,
           promptSnapshot,
-          resumeAnchor: safeParseJson<PublishResumeAnchor | null>(jobDetail.resumeAnchorJson ?? "", null)
+          resumeAnchor: safeParseJson<PublishResumeAnchor | null>(jobDetail.resumeAnchorJson ?? "", null),
+          expectedZhihuUserName: account.zhihuUserName,
+          accountName: account.name
         });
 
-        await this.jobRepository.updatePublishAttempt(attemptId, {
-          status: "published",
-          currentUrl: publishResult.finalUrl,
-          payload: {
+        await this.finalizePublishedJob({
+          job,
+          jobDetail,
+          slotId: slot?.id ?? null,
+          attemptId,
+          finalUrl: publishResult.finalUrl,
+          screenshotPath: publishResult.screenshotPath,
+          promptSnapshotJson: promptContext.promptSnapshotJson,
+          attemptPayload: {
             ...attemptPayload,
             finishedAt: new Date().toISOString(),
             pageSnapshot: publishResult.pageSnapshot
           },
-          failureType: null,
-          failureReason: null
+          publishStage: "publish_verify",
+          artifactPhase: "publish-success"
         });
 
-        await this.jobRepository.createArtifact(attemptId, "screenshot", publishResult.screenshotPath, {
-          phase: "publish-success"
-        });
-
-        await this.jobRepository.updateJobStatus(job.id, "published", {
-          finalUrl: publishResult.finalUrl,
-          failureReason: null,
-          currentStage: "published",
-          resumeAnchorJson: null,
-          lastErrorType: null,
-          promptVersionSnapshotJson: promptContext.promptSnapshotJson
-        });
-
-        if (slot) {
-          await this.scheduleRepository.updateSlotStatus(slot.id, "published");
-        }
-
-        if (jobDetail.topicCardId) {
-          await this.topicRepository.markCandidatePublishedByTopicCard(jobDetail.topicCardId);
-        }
-
-        await this.accountRepository.touchPublishSuccess(job.accountId);
         await this.publishService.closeSession(sessionKey);
         return { blockedByLogin: false, message: null };
       } catch (error) {
@@ -370,7 +528,9 @@ export class WorkerRunner {
           content,
           promptSnapshot,
           promptSnapshotJson: promptContext.promptSnapshotJson,
-          traceGroupId
+          traceGroupId,
+          expectedZhihuUserName: account.zhihuUserName,
+          accountName: account.name
         });
         if (recoveredAsPublished) {
           await this.publishService.closeSession(sessionKey);
@@ -418,42 +578,28 @@ export class WorkerRunner {
             publishAttemptId: attemptId,
             currentUrl: failure.currentUrl ?? questionUrl,
             content,
-            promptSnapshot
+            promptSnapshot,
+            expectedZhihuUserName: account.zhihuUserName,
+            accountName: account.name
           });
 
           if (verifyResult.ok) {
-            await this.jobRepository.createArtifact(attemptId, "screenshot", verifyResult.screenshotPath, {
-              phase: "publish-verify"
-            });
-
-            await this.jobRepository.updatePublishAttempt(attemptId, {
-              status: "published",
-              currentUrl: verifyResult.finalUrl,
-              payload: {
-                verifyResult
-              },
-              failureType: null,
-              failureReason: null
-            });
-
-            await this.jobRepository.updateJobStatus(job.id, "published", {
+            await this.finalizePublishedJob({
+              job,
+              jobDetail,
+              slotId: slot?.id ?? null,
+              attemptId,
               finalUrl: verifyResult.finalUrl,
-              failureReason: null,
-              currentStage: "published",
-              resumeAnchorJson: null,
-              lastErrorType: null,
-              promptVersionSnapshotJson: promptContext.promptSnapshotJson
+              screenshotPath: verifyResult.screenshotPath,
+              promptSnapshotJson: promptContext.promptSnapshotJson,
+              attemptPayload: {
+                verifyResult,
+                finishedAt: new Date().toISOString()
+              },
+              publishStage: "publish_verify",
+              artifactPhase: "publish-verify"
             });
 
-            if (slot) {
-              await this.scheduleRepository.updateSlotStatus(slot.id, "published");
-            }
-
-            if (jobDetail.topicCardId) {
-              await this.topicRepository.markCandidatePublishedByTopicCard(jobDetail.topicCardId);
-            }
-
-            await this.accountRepository.touchPublishSuccess(job.accountId);
             await this.publishService.closeSession(sessionKey);
             return { blockedByLogin: false, message: null };
           }
@@ -479,6 +625,7 @@ export class WorkerRunner {
             questionUrl,
             revisionFeedback: `${failure.message}；${resolution.reason}`,
             promptVersionSnapshotJson: promptContext.promptSnapshotJson,
+            accountContext: toAccountPromptContext(account),
             onStage: async (stage) => {
               await this.jobRepository.updateJobStatus(job.id, stage, {
                 currentStage: stage,
@@ -526,7 +673,8 @@ export class WorkerRunner {
               jobDetail.topicCardId ?? null,
               slot?.id ?? null,
               promptContext.promptSnapshotJson,
-              rewritten.reason
+              rewritten.reason,
+              toAccountPromptContext(account)
             );
             if (!replacementSucceeded) {
               await this.failJob(job.id, slot?.id ?? null, "duplicate_block", rewritten.reason, jobDetail.topicCardId);
@@ -573,7 +721,8 @@ export class WorkerRunner {
             jobDetail.topicCardId ?? null,
             slot?.id ?? null,
             promptContext.promptSnapshotJson,
-            failure.message
+            failure.message,
+            toAccountPromptContext(account)
           );
           if (!replacementSucceeded) {
             await this.failJob(job.id, slot?.id ?? null, "duplicate_block", failure.message, jobDetail.topicCardId);
@@ -658,7 +807,8 @@ export class WorkerRunner {
     currentTopicCardId: number | null,
     slotId: number | null,
     promptSnapshotJson: string,
-    reason: string
+    reason: string,
+    accountContext?: AccountPromptContext | null
   ) {
     if (currentTopicCardId) {
       await this.topicRepository.markCandidateDuplicateByTopicCard(currentTopicCardId, reason);
@@ -668,6 +818,7 @@ export class WorkerRunner {
     const replacement = await this.topicPipelineService.prepareNextPublishableDraft({
       publishJobId: jobId,
       promptSnapshot,
+      accountContext,
       onStage: async (stage) => {
         await this.jobRepository.updateJobStatus(jobId, stage, {
           currentStage: stage,
@@ -703,6 +854,19 @@ export class WorkerRunner {
     message: string,
     topicCardId?: number | null
   ) {
+    const jobDetail = await this.jobRepository.getJobById(jobId);
+    const account = jobDetail ? await this.accountRepository.getAccount(jobDetail.accountId) : null;
+    const triggerStage = resolveNotificationTriggerStage({
+      resumeAnchorJson: jobDetail?.resumeAnchorJson ?? null,
+      preferredStage: jobDetail?.currentStage ?? null,
+      fallbackStage: "failed_terminal"
+    });
+    const entryUrl = resolveNotificationEntryUrl({
+      resumeAnchorJson: jobDetail?.resumeAnchorJson ?? null,
+      questionUrl: jobDetail?.questionUrl ?? null,
+      finalUrl: jobDetail?.finalUrl ?? null
+    });
+
     await this.jobRepository.updateJobStatus(jobId, "failed_terminal", {
       failureReason: `${failureType}: ${message}`,
       currentStage: "failed_terminal",
@@ -728,6 +892,18 @@ export class WorkerRunner {
     if (slotId) {
       await this.scheduleRepository.updateSlotStatus(slotId, "failed");
     }
+
+    await this.feishuNotificationService.sendProblemNotification({
+      accountName: account?.name ?? (jobDetail ? `账号#${jobDetail.accountId}` : `账号任务#${jobId}`),
+      zhihuUserName: account?.zhihuUserName ?? null,
+      jobId,
+      currentStage: "failed_terminal",
+      triggerStage,
+      failureType,
+      failureReason: message,
+      questionTitle: jobDetail?.questionTitle ?? jobDetail?.title ?? null,
+      entryUrl
+    });
   }
 
   private async tryFinalizePublishedFromExistingResult(input: {
@@ -748,6 +924,8 @@ export class WorkerRunner {
     promptSnapshot: PromptSnapshotMap;
     promptSnapshotJson: string;
     traceGroupId: string;
+    expectedZhihuUserName: string | null;
+    accountName: string;
   }) {
     const verificationUrl = pickVerificationUrl(input.jobDetail, input.failure);
     if (!verificationUrl) {
@@ -763,7 +941,9 @@ export class WorkerRunner {
         publishAttemptId: input.attemptId,
         currentUrl: verificationUrl,
         content: input.content,
-        promptSnapshot: input.promptSnapshot
+        promptSnapshot: input.promptSnapshot,
+        expectedZhihuUserName: input.expectedZhihuUserName,
+        accountName: input.accountName
       });
 
       if (!verifyResult.ok) {
@@ -784,7 +964,9 @@ export class WorkerRunner {
           recoveredFromUrl: verificationUrl,
           finishedAt: new Date().toISOString(),
           verifyResult
-        }
+        },
+        publishStage: "publish_verify",
+        artifactPhase: "publish-verify"
       });
 
       return true;
@@ -802,6 +984,8 @@ export class WorkerRunner {
     screenshotPath?: string | null;
     promptSnapshotJson: string;
     attemptPayload: Record<string, unknown>;
+    publishStage?: string | null;
+    artifactPhase?: string;
   }) {
     await this.jobRepository.updatePublishAttempt(input.attemptId, {
       status: "published",
@@ -813,7 +997,7 @@ export class WorkerRunner {
 
     if (input.screenshotPath) {
       await this.jobRepository.createArtifact(input.attemptId, "screenshot", input.screenshotPath, {
-        phase: "publish-verify"
+        phase: input.artifactPhase ?? "publish-verify"
       });
     }
 
@@ -834,7 +1018,36 @@ export class WorkerRunner {
       await this.topicRepository.markCandidatePublishedByTopicCard(input.jobDetail.topicCardId);
     }
 
+    if (input.jobDetail.questionUrl && input.jobDetail.questionTitle) {
+      try {
+        await this.topicRepository.upsertAnsweredTopic({
+          accountId: input.job.accountId,
+          questionUrl: input.jobDetail.questionUrl,
+          questionTitle: input.jobDetail.questionTitle,
+          topicCardId: input.jobDetail.topicCardId,
+          reviewId: input.jobDetail.reviewId,
+          publishJobId: input.job.id,
+          answerUrl: input.finalUrl,
+          answeredAt: new Date()
+        });
+      } catch (error) {
+        console.error("[worker] failed to persist answered topic history", error);
+      }
+    }
+
     await this.accountRepository.touchPublishSuccess(input.job.accountId);
+
+    const account = await this.accountRepository.getAccount(input.job.accountId);
+    await this.feishuNotificationService.sendPublishSuccessNotification({
+      accountName: account?.name ?? `账号#${input.job.accountId}`,
+      zhihuUserName: account?.zhihuUserName ?? null,
+      jobId: input.job.id,
+      publishStage: input.publishStage ?? "publish_verify",
+      questionTitle: input.jobDetail.questionTitle ?? input.jobDetail.title ?? input.job.title,
+      publishedAt: new Date(),
+      scheduledAt: input.jobDetail.scheduledAt ?? input.job.scheduledAt,
+      finalUrl: input.finalUrl
+    });
   }
 
   private async pauseAccountForLogin(
@@ -845,8 +1058,22 @@ export class WorkerRunner {
       slotId?: number | null;
       resumeAnchorJson?: string | null;
       failureType?: FailureType;
+      triggerStage?: string | null;
     }
   ) {
+    const account = await this.accountRepository.getAccount(accountId);
+    const targetJob = options?.jobId != null ? await this.jobRepository.getJobById(options.jobId) : null;
+    const triggerStage = resolveNotificationTriggerStage({
+      resumeAnchorJson: options?.resumeAnchorJson ?? targetJob?.resumeAnchorJson ?? null,
+      preferredStage: options?.triggerStage ?? targetJob?.currentStage ?? null,
+      fallbackStage: "manual_login_required"
+    });
+    const entryUrl = resolveNotificationEntryUrl({
+      resumeAnchorJson: options?.resumeAnchorJson ?? targetJob?.resumeAnchorJson ?? null,
+      questionUrl: targetJob?.questionUrl ?? null,
+      finalUrl: targetJob?.finalUrl ?? null
+    });
+
     await this.accountRepository.markManualLoginRequired(accountId, reason);
 
     const dueJobs = (await this.jobRepository.getDueJobs()).filter((job) => job.accountId === accountId);
@@ -872,9 +1099,25 @@ export class WorkerRunner {
         await this.scheduleRepository.updateSlotStatus(slot.id, "manual_login_required");
       }
     }
+
+    await this.feishuNotificationService.sendProblemNotification({
+      accountName: account?.name ?? `账号#${accountId}`,
+      zhihuUserName: account?.zhihuUserName ?? null,
+      jobId: targetJob?.id ?? options?.jobId ?? null,
+      currentStage: "manual_login_required",
+      triggerStage,
+      failureType: options?.failureType ?? "login_required",
+      failureReason: reason,
+      questionTitle: targetJob?.questionTitle ?? targetJob?.title ?? null,
+      entryUrl,
+      note: targetJob ? null : "当前为账号级阻塞，无关联发布任务。"
+    });
   }
 
-  private async ensurePromptSnapshot(job: Pick<JobListItem, "id" | "status" | "currentStage" | "promptVersionSnapshotJson">) {
+  private async ensurePromptSnapshot(
+    job: Pick<JobListItem, "id" | "status" | "currentStage" | "promptVersionSnapshotJson">,
+    account?: Pick<WorkerAccount, "writerPromptVersionId">
+  ) {
     if (job.promptVersionSnapshotJson) {
       return {
         promptSnapshotJson: job.promptVersionSnapshotJson,
@@ -882,7 +1125,9 @@ export class WorkerRunner {
       };
     }
 
-    const promptSnapshot = await this.llmService.getActivePromptSnapshot();
+    const promptSnapshot = await this.llmService.getPromptSnapshotForAccount({
+      writerPromptVersionId: account?.writerPromptVersionId ?? null
+    });
     const promptSnapshotJson = JSON.stringify(promptSnapshot);
 
     await this.jobRepository.updateJobStatus(job.id, job.status, {
@@ -895,6 +1140,10 @@ export class WorkerRunner {
       promptSnapshot
     };
   }
+}
+
+function addMinutes(date: Date, minutes: number) {
+  return new Date(date.getTime() + minutes * 60 * 1000);
 }
 
 function normalizePublishError(error: unknown) {
@@ -915,6 +1164,18 @@ function normalizePublishError(error: unknown) {
   };
 }
 
+function mapSessionFailureType(sessionState: SessionStateError["sessionState"]): FailureType {
+  if (sessionState === "session_expired") {
+    return "session_expired";
+  }
+
+  if (sessionState === "account_identity_mismatch") {
+    return "account_identity_mismatch";
+  }
+
+  return "login_required";
+}
+
 function normalizeResumeAnchor(anchor: unknown, fallbackUrl: string) {
   if (anchor && typeof anchor === "object" && "stage" in anchor) {
     return anchor as PublishResumeAnchor;
@@ -924,6 +1185,24 @@ function normalizeResumeAnchor(anchor: unknown, fallbackUrl: string) {
     stage: "login_checking",
     currentUrl: fallbackUrl
   } satisfies PublishResumeAnchor;
+}
+
+function resolveNotificationTriggerStage(input: {
+  resumeAnchorJson?: string | null;
+  preferredStage?: string | JobStage | null;
+  fallbackStage: string;
+}) {
+  const resumeAnchor = safeParseJson<{ stage?: string | null } | null>(input.resumeAnchorJson ?? "", null);
+  return resumeAnchor?.stage ?? input.preferredStage ?? input.fallbackStage;
+}
+
+function resolveNotificationEntryUrl(input: {
+  resumeAnchorJson?: string | null;
+  questionUrl?: string | null;
+  finalUrl?: string | null;
+}) {
+  const resumeAnchor = safeParseJson<{ currentUrl?: string | null } | null>(input.resumeAnchorJson ?? "", null);
+  return resumeAnchor?.currentUrl ?? input.questionUrl ?? input.finalUrl ?? null;
 }
 
 function pickVerificationUrl(
@@ -966,4 +1245,42 @@ function logExecutionContext(input: {
       attempt_id: input.attemptNo
     })
   );
+}
+
+function toAccountPromptContext(account: WorkerAccount): AccountPromptContext {
+  return {
+    accountId: account.id,
+    accountName: account.name,
+    zhihuUserName: account.zhihuUserName
+  };
+}
+
+function isLoginBlockedAccount(account: Pick<WorkerAccount, "status">) {
+  return account.status === "manual_login_required" || account.status === "session_expired";
+}
+
+function resolveTickAccountStatus(totalAccounts: number, blockedAccounts: number) {
+  if (blockedAccounts <= 0) {
+    return "active";
+  }
+
+  if (blockedAccounts >= totalAccounts) {
+    return "manual_login_required";
+  }
+
+  return "partially_blocked";
+}
+
+function buildBlockedSummary(totalAccounts: number, blockedAccounts: number, blockedMessages: string[]) {
+  if (blockedAccounts <= 0) {
+    return null;
+  }
+
+  const firstMessage = Array.from(new Set(blockedMessages.filter(Boolean)))[0] ?? null;
+  const prefix =
+    blockedAccounts >= totalAccounts
+      ? `${blockedAccounts} 个账号当前需要人工登录恢复。`
+      : `${blockedAccounts} 个账号被登录状态阻塞，其余账号继续执行。`;
+
+  return firstMessage ? `${prefix} ${firstMessage}` : prefix;
 }

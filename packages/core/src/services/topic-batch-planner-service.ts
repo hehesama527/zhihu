@@ -1,6 +1,8 @@
 import type { PromptSnapshotMap, TopicBatchPlan, TopicBatchPlanItem, TopicPriority } from "@zhihu-mvp/shared";
 import { TopicRepository } from "../repositories/topic-repository.js";
+import { getElapsedMs, logDebugTiming } from "../utils/debug-timing.js";
 import { safeParseJson } from "../utils/json.js";
+import { type AccountPromptContext, buildTopicPromptSuffix } from "./account-prompt-context.js";
 import { LlmService } from "./llm-service.js";
 
 type CandidatePoolItem = Awaited<ReturnType<TopicRepository["listOpenCandidates"]>>[number];
@@ -22,16 +24,23 @@ export class TopicBatchPlannerService {
     private readonly topicRepository: TopicRepository
   ) {}
 
-  async getCurrentBatchPlan(promptSnapshot?: PromptSnapshotMap | null): Promise<TopicBatchPlan> {
-    const candidatePool = await this.topicRepository.listOpenCandidates(10);
-    return this.buildPlan(candidatePool, promptSnapshot);
+  async getCurrentBatchPlan(
+    promptSnapshot?: PromptSnapshotMap | null,
+    options?: {
+      accountId?: number | null;
+      accountContext?: AccountPromptContext | null;
+    }
+  ): Promise<TopicBatchPlan> {
+    const candidatePool = await this.topicRepository.listOpenCandidates(10, options?.accountId);
+    return this.buildPlan(candidatePool, promptSnapshot, options?.accountContext);
   }
 
   async rankCandidatePool(
     candidatePool: CandidatePoolItem[],
-    promptSnapshot?: PromptSnapshotMap | null
+    promptSnapshot?: PromptSnapshotMap | null,
+    accountContext?: AccountPromptContext | null
   ): Promise<Array<CandidatePoolItem & { batchPlan: TopicBatchPlanItem }>> {
-    const plan = await this.buildPlan(candidatePool, promptSnapshot);
+    const plan = await this.buildPlan(candidatePool, promptSnapshot, accountContext);
     const candidateMap = new Map(candidatePool.map((candidate) => [candidate.id, candidate]));
 
     return plan.ranking
@@ -49,8 +58,16 @@ export class TopicBatchPlannerService {
       .filter((item): item is CandidatePoolItem & { batchPlan: TopicBatchPlanItem } => item !== null);
   }
 
-  private async buildPlan(candidatePool: CandidatePoolItem[], promptSnapshot?: PromptSnapshotMap | null): Promise<TopicBatchPlan> {
+  private async buildPlan(
+    candidatePool: CandidatePoolItem[],
+    promptSnapshot?: PromptSnapshotMap | null,
+    accountContext?: AccountPromptContext | null
+  ): Promise<TopicBatchPlan> {
+    const startedAt = Date.now();
     if (candidatePool.length === 0) {
+      logDebugTiming("topicBatchPlanner.buildPlan", "empty_pool", {
+        accountId: accountContext?.accountId ?? null
+      });
       return {
         batchSize: 0,
         availableCount: 0,
@@ -65,8 +82,13 @@ export class TopicBatchPlannerService {
     let rawResult = fallback;
 
     try {
+      logDebugTiming("topicBatchPlanner.buildPlan", "start", {
+        accountId: accountContext?.accountId ?? null,
+        candidatePoolSize: candidatePool.length
+      });
       const topicPrompt = await this.llmService.resolvePrompt("topic_agent", {
-        promptSnapshot
+        promptSnapshot,
+        promptSuffix: buildTopicPromptSuffix(accountContext)
       });
 
       rawResult = await this.llmService.runJsonWithSystemPrompt<TopicBatchSelectorOutput>(
@@ -143,8 +165,19 @@ export class TopicBatchPlannerService {
       );
     } catch {
       rawResult = fallback;
+      logDebugTiming("topicBatchPlanner.buildPlan", "fallback", {
+        accountId: accountContext?.accountId ?? null,
+        candidatePoolSize: candidatePool.length,
+        elapsedMs: getElapsedMs(startedAt)
+      });
     }
 
+    logDebugTiming("topicBatchPlanner.buildPlan", "done", {
+      accountId: accountContext?.accountId ?? null,
+      candidatePoolSize: candidatePool.length,
+      elapsedMs: getElapsedMs(startedAt),
+      selectedCandidateId: rawResult.selected_candidate_id ?? null
+    });
     return normalizeTopicBatchPlan(candidatePool, rawResult, fallback);
   }
 }

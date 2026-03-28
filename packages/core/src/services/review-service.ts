@@ -1,4 +1,5 @@
 import type { PromptSnapshotMap } from "@zhihu-mvp/shared";
+import { getElapsedMs, logDebugTiming } from "../utils/debug-timing.js";
 import { LlmService } from "./llm-service.js";
 
 export type ReviewStageResult = {
@@ -44,6 +45,11 @@ export class ReviewService {
       onStage?: (stage: "review_hard_gate" | "review_editorial" | "review_publish") => Promise<void> | void;
     }
   ): Promise<ReviewResult> {
+    const startedAt = Date.now();
+    logDebugTiming("review.reviewContent", "start", {
+      contentLength: input.content.length,
+      pastContentFingerprints: input.pastContentFingerprints.length
+    });
     await hooks?.onStage?.("review_hard_gate");
 
     const reviewPrompt = await this.llmService.resolvePrompt("review_agent", {
@@ -68,6 +74,10 @@ export class ReviewService {
     const publish = normalizePublish(combined.publish, input.content);
 
     if (hardGate.decision === "BLOCK") {
+      logDebugTiming("review.reviewContent", "hard_block", {
+        elapsedMs: getElapsedMs(startedAt),
+        reason: hardGate.reason ?? "Hard gate blocked the draft."
+      });
       return {
         decision: "BLOCK",
         hardGate,
@@ -84,6 +94,11 @@ export class ReviewService {
         : editorial.decision === "REVISE" || publish.decision === "REVISE"
           ? "REVISE"
           : "PASS";
+
+    logDebugTiming("review.reviewContent", "done", {
+      elapsedMs: getElapsedMs(startedAt),
+      decision: finalDecision
+    });
 
     return {
       decision: finalDecision,

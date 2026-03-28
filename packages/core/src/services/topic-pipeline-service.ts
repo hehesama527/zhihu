@@ -1,6 +1,8 @@
 import type { JobStage, PromptSnapshotMap, TopicPriority } from "@zhihu-mvp/shared";
 import { TopicRepository } from "../repositories/topic-repository.js";
+import { getElapsedMs, logDebugTiming } from "../utils/debug-timing.js";
 import { safeParseJson } from "../utils/json.js";
+import { type AccountPromptContext, buildTopicPromptSuffix } from "./account-prompt-context.js";
 import { HumanizerService } from "./humanizer-service.js";
 import { LlmService } from "./llm-service.js";
 import { ReviewService } from "./review-service.js";
@@ -48,6 +50,8 @@ type TopicAgentOutput = {
   };
 };
 
+export type WriterAccountContext = AccountPromptContext;
+
 export class TopicPipelineService {
   constructor(
     private readonly llmService: LlmService,
@@ -61,15 +65,59 @@ export class TopicPipelineService {
   async prepareNextPublishableDraft(input?: {
     publishJobId?: number | null;
     promptSnapshot?: PromptSnapshotMap | null;
+    accountContext?: WriterAccountContext | null;
     onStage?: (stage: JobStage) => Promise<void> | void;
   }) {
+    const startedAt = Date.now();
+    logDebugTiming("topicPipeline.prepareNextPublishableDraft", "start", {
+      publishJobId: input?.publishJobId ?? null,
+      accountId: input?.accountContext?.accountId ?? null
+    });
+
     const promptSnapshot = input?.promptSnapshot ?? (await this.llmService.getActivePromptSnapshot());
-    const candidatePool = await this.topicRepository.listOpenCandidates(10);
-    const rankedCandidatePool = await this.topicBatchPlannerService.rankCandidatePool(candidatePool, promptSnapshot);
-    const pastTopicFingerprints = await this.topicRepository.getRecentPublishedTopicFingerprints(10);
+
+    // Keep the injected service referenced for backward-compatible wiring.
+    void this.topicReviewService;
+
+    await this.topicRepository.markAnsweredHistoryCandidates(input?.accountContext?.accountId ?? null);
+    const candidatePool = await this.topicRepository.listOpenCandidates(10, input?.accountContext?.accountId ?? null);
+    const rankedCandidatePool = await this.topicBatchPlannerService.rankCandidatePool(
+      candidatePool,
+      promptSnapshot,
+      input?.accountContext ?? null
+    );
+    logDebugTiming("topicPipeline.prepareNextPublishableDraft", "loaded_candidates", {
+      publishJobId: input?.publishJobId ?? null,
+      accountId: input?.accountContext?.accountId ?? null,
+      candidatePoolSize: candidatePool.length,
+      rankedCandidatePoolSize: rankedCandidatePool.length,
+      elapsedMs: getElapsedMs(startedAt)
+    });
+    const pastTopicFingerprints = await this.topicRepository.getRecentPublishedTopicFingerprints(
+      10,
+      input?.accountContext?.accountId ?? null
+    );
     const pastContentFingerprints = await this.topicRepository.getRecentPublishedContentFingerprints(10);
 
     for (const candidate of rankedCandidatePool) {
+      const candidateStartedAt = Date.now();
+      logDebugTiming("topicPipeline.prepareNextPublishableDraft", "candidate_start", {
+        publishJobId: input?.publishJobId ?? null,
+        candidateId: candidate.id,
+        questionTitle: candidate.questionTitle
+      });
+
+      const answeredTopic = await this.topicRepository.findAnsweredTopicByQuestionUrl(candidate.questionUrl);
+      if (answeredTopic) {
+        await this.topicRepository.markCandidateDuplicate(candidate.id, answeredTopic.duplicateReason);
+        logDebugTiming("topicPipeline.prepareNextPublishableDraft", "candidate_answered_duplicate", {
+          publishJobId: input?.publishJobId ?? null,
+          candidateId: candidate.id,
+          elapsedMs: getElapsedMs(candidateStartedAt)
+        });
+        continue;
+      }
+
       const sourceContext = safeParseJson<Record<string, unknown>>(candidate.sourceMetadataText ?? "{}", {});
       let topicCard = normalizeCachedTopicAgentOutput(sourceContext.prefilterTopicCard, candidate.questionTitle);
 
@@ -94,10 +142,16 @@ export class TopicPipelineService {
           },
           buildTopicAgentFallback(candidate.questionTitle),
           {
-            promptSnapshot
+            promptSnapshot,
+            promptSuffix: buildTopicPromptSuffix(input?.accountContext)
           }
         );
         await this.topicRepository.cacheCandidatePrefilter(candidate.id, topicCard);
+        logDebugTiming("topicPipeline.prepareNextPublishableDraft", "candidate_topic_agent_done", {
+          publishJobId: input?.publishJobId ?? null,
+          candidateId: candidate.id,
+          elapsedMs: getElapsedMs(candidateStartedAt)
+        });
       }
 
       await this.topicRepository.updateCandidateTopicMeta({
@@ -111,34 +165,18 @@ export class TopicPipelineService {
       });
 
       if (topicCard.priority === "SKIP") {
-        await this.topicRepository.markCandidateBlocked(candidate.id, "选题卡判定为不建议进入写作。");
+        await this.topicRepository.markCandidateBlocked(candidate.id, "topic skipped by scripted prefilter");
+        logDebugTiming("topicPipeline.prepareNextPublishableDraft", "candidate_skipped", {
+          publishJobId: input?.publishJobId ?? null,
+          candidateId: candidate.id,
+          elapsedMs: getElapsedMs(candidateStartedAt)
+        });
         continue;
       }
 
       await this.topicRepository.markCandidateProcessing(candidate.id, JSON.stringify(topicCard.topic_fingerprint ?? {}));
 
-      await input?.onStage?.("topic_review");
-      const topicReview = await this.topicReviewService.reviewDuplication(
-        {
-          candidateId: candidate.id,
-          candidateTitle: candidate.questionTitle,
-          candidateSummary: topicCard.summary ?? candidate.questionTitle,
-          candidatePool: rankedCandidatePool.map((item) => ({ id: item.id, title: item.questionTitle })),
-          pastTopicFingerprints
-        },
-        promptSnapshot
-      );
-
-      if (topicReview.is_duplicate || topicReview.next_action === "RESELECT_TOPIC") {
-        await this.topicRepository.markCandidateDuplicate(
-          candidate.id,
-          topicReview.duplicate_reason ||
-            `选题重复性评分 ${topicReview.score}/25，低于通过线 ${topicReview.passing_score}。`
-        );
-        await this.topicRepository.pruneCandidates(topicReview.prune_candidate_ids);
-        continue;
-      }
-
+      // Historical duplicate screening now uses only the normalized question URL.
       const topicCardId = await this.topicRepository.createTopicCard(
         candidate.id,
         topicCard.summary ?? candidate.questionTitle,
@@ -153,6 +191,7 @@ export class TopicPipelineService {
           questionUrl: candidate.questionUrl,
           topicCard,
           pastContentFingerprints,
+          accountContext: input?.accountContext ?? null,
           onStage: input?.onStage
         },
         promptSnapshot
@@ -161,23 +200,48 @@ export class TopicPipelineService {
       if (!preparedDraft || preparedDraft.kind === "blocked") {
         await this.topicRepository.markCandidateBlocked(
           candidate.id,
-          preparedDraft?.kind === "blocked" ? preparedDraft.reason : "稿件未通过审核。"
+          preparedDraft?.kind === "blocked" ? preparedDraft.reason : "draft blocked before publish"
         );
+        logDebugTiming("topicPipeline.prepareNextPublishableDraft", "candidate_blocked", {
+          publishJobId: input?.publishJobId ?? null,
+          candidateId: candidate.id,
+          reason: preparedDraft?.kind === "blocked" ? preparedDraft.reason : "draft blocked before publish",
+          elapsedMs: getElapsedMs(candidateStartedAt)
+        });
         continue;
       }
 
       if (preparedDraft.kind === "duplicate") {
         await this.topicRepository.markCandidateDuplicate(candidate.id, preparedDraft.reason);
+        logDebugTiming("topicPipeline.prepareNextPublishableDraft", "candidate_duplicate", {
+          publishJobId: input?.publishJobId ?? null,
+          candidateId: candidate.id,
+          reason: preparedDraft.reason,
+          elapsedMs: getElapsedMs(candidateStartedAt)
+        });
         continue;
       }
 
       await this.topicRepository.markCandidateAccepted(candidate.id, JSON.stringify(topicCard.topic_fingerprint ?? {}));
+      logDebugTiming("topicPipeline.prepareNextPublishableDraft", "candidate_ready", {
+        publishJobId: input?.publishJobId ?? null,
+        candidateId: candidate.id,
+        topicCardId: preparedDraft.topicCardId,
+        reviewId: preparedDraft.reviewId,
+        elapsedMs: getElapsedMs(candidateStartedAt),
+        totalElapsedMs: getElapsedMs(startedAt)
+      });
       return {
         ...preparedDraft,
         questionUrl: candidate.questionUrl
       };
     }
 
+    logDebugTiming("topicPipeline.prepareNextPublishableDraft", "no_candidate_ready", {
+      publishJobId: input?.publishJobId ?? null,
+      accountId: input?.accountContext?.accountId ?? null,
+      elapsedMs: getElapsedMs(startedAt)
+    });
     return null;
   }
 
@@ -188,6 +252,7 @@ export class TopicPipelineService {
     questionUrl: string;
     revisionFeedback: string;
     promptVersionSnapshotJson: string | null;
+    accountContext?: WriterAccountContext | null;
     onStage?: (stage: JobStage) => Promise<void> | void;
   }) {
     const topicCardRecord = await this.topicRepository.getTopicCardById(input.topicCardId);
@@ -210,6 +275,7 @@ export class TopicPipelineService {
         topicCard,
         pastContentFingerprints,
         revisionFeedback: input.revisionFeedback,
+        accountContext: input.accountContext ?? null,
         onStage: input.onStage
       },
       promptSnapshot
@@ -225,13 +291,22 @@ export class TopicPipelineService {
       topicCard: Record<string, unknown>;
       pastContentFingerprints: unknown[];
       revisionFeedback?: string;
+      accountContext?: WriterAccountContext | null;
       onStage?: (stage: JobStage) => Promise<void> | void;
     },
     promptSnapshot: PromptSnapshotMap
   ): Promise<PreparedDraftResult | null> {
+    const startedAt = Date.now();
     let revisionFeedback = input.revisionFeedback ?? "";
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
+      const attemptStartedAt = Date.now();
+      logDebugTiming("topicPipeline.generateReviewedDraft", "attempt_start", {
+        publishJobId: input.publishJobId,
+        topicCardId: input.topicCardId,
+        attempt: attempt + 1
+      });
+
       await input.onStage?.("writer");
       const writerOutput = await this.llmService.runJson(
         "writer_agent",
@@ -253,9 +328,16 @@ export class TopicPipelineService {
           }
         },
         {
-          promptSnapshot
+          promptSnapshot,
+          promptSuffix: buildWriterPromptSuffix(input.accountContext)
         }
       );
+      logDebugTiming("topicPipeline.generateReviewedDraft", "writer_done", {
+        publishJobId: input.publishJobId,
+        topicCardId: input.topicCardId,
+        attempt: attempt + 1,
+        elapsedMs: getElapsedMs(attemptStartedAt)
+      });
 
       await this.topicRepository.createDraft(
         input.topicCardId,
@@ -270,6 +352,12 @@ export class TopicPipelineService {
         publishJobId: input.publishJobId,
         stage: "humanizing",
         agentName: "writer_agent"
+      });
+      logDebugTiming("topicPipeline.generateReviewedDraft", "humanizer_done", {
+        publishJobId: input.publishJobId,
+        topicCardId: input.topicCardId,
+        attempt: attempt + 1,
+        elapsedMs: getElapsedMs(attemptStartedAt)
       });
 
       const humanizedDraftId = await this.topicRepository.createDraft(
@@ -296,6 +384,13 @@ export class TopicPipelineService {
           }
         }
       );
+      logDebugTiming("topicPipeline.generateReviewedDraft", "review_done", {
+        publishJobId: input.publishJobId,
+        topicCardId: input.topicCardId,
+        attempt: attempt + 1,
+        decision: review.decision,
+        elapsedMs: getElapsedMs(attemptStartedAt)
+      });
 
       const reviewId = await this.topicRepository.createReview({
         draftId: humanizedDraftId,
@@ -313,6 +408,13 @@ export class TopicPipelineService {
       });
 
       if (review.decision === "PASS" && review.approvedContent) {
+        logDebugTiming("topicPipeline.generateReviewedDraft", "attempt_pass", {
+          publishJobId: input.publishJobId,
+          topicCardId: input.topicCardId,
+          attempt: attempt + 1,
+          elapsedMs: getElapsedMs(attemptStartedAt),
+          totalElapsedMs: getElapsedMs(startedAt)
+        });
         return {
           kind: "ready",
           title: String(writerOutput.title ?? input.candidateTitle),
@@ -324,25 +426,52 @@ export class TopicPipelineService {
       }
 
       if (review.decision === "BLOCK_DUPLICATION") {
+        logDebugTiming("topicPipeline.generateReviewedDraft", "attempt_duplicate", {
+          publishJobId: input.publishJobId,
+          topicCardId: input.topicCardId,
+          attempt: attempt + 1,
+          elapsedMs: getElapsedMs(attemptStartedAt),
+          totalElapsedMs: getElapsedMs(startedAt)
+        });
         return {
           kind: "duplicate",
-          reason: review.publish.duplicate_reason ?? "内容重复性过高。"
+          reason: review.publish.duplicate_reason ?? "content duplication detected during publish review"
         };
       }
 
       if (review.decision === "BLOCK") {
+        logDebugTiming("topicPipeline.generateReviewedDraft", "attempt_blocked", {
+          publishJobId: input.publishJobId,
+          topicCardId: input.topicCardId,
+          attempt: attempt + 1,
+          reason: review.reviewSummary || "content blocked by review",
+          elapsedMs: getElapsedMs(attemptStartedAt),
+          totalElapsedMs: getElapsedMs(startedAt)
+        });
         return {
           kind: "blocked",
-          reason: review.reviewSummary || "内容被红线规则拦截。"
+          reason: review.reviewSummary || "content blocked by review"
         };
       }
 
       revisionFeedback = review.editorial.rewrite_brief ?? review.reviewSummary;
+      logDebugTiming("topicPipeline.generateReviewedDraft", "attempt_revise", {
+        publishJobId: input.publishJobId,
+        topicCardId: input.topicCardId,
+        attempt: attempt + 1,
+        elapsedMs: getElapsedMs(attemptStartedAt),
+        totalElapsedMs: getElapsedMs(startedAt)
+      });
     }
 
+    logDebugTiming("topicPipeline.generateReviewedDraft", "rewrite_limit_reached", {
+      publishJobId: input.publishJobId,
+      topicCardId: input.topicCardId,
+      elapsedMs: getElapsedMs(startedAt)
+    });
     return {
       kind: "blocked",
-      reason: "已经重写 1 次，仍未通过审核。"
+      reason: "rewrite limit reached without passing review"
     };
   }
 }
@@ -353,8 +482,8 @@ function buildTopicAgentFallback(questionTitle: string): TopicAgentOutput {
     summary: questionTitle,
     priority: "P2",
     fit_score: 60,
-    question_type: "其他",
-    persona_mode: "二牛经验型",
+    question_type: "other",
+    persona_mode: "default",
     target_audience: [],
     pain_points: [],
     recommended_angle: "",
@@ -394,8 +523,8 @@ function normalizeCachedTopicAgentOutput(value: unknown, questionTitle: string):
     summary: typeof record.summary === "string" && record.summary.trim() ? record.summary : questionTitle,
     priority,
     fit_score: Number.isFinite(Number(record.fit_score)) ? Number(record.fit_score) : 60,
-    question_type: typeof record.question_type === "string" && record.question_type.trim() ? record.question_type : "其他",
-    persona_mode: typeof record.persona_mode === "string" && record.persona_mode.trim() ? record.persona_mode : "二牛经验型",
+    question_type: typeof record.question_type === "string" && record.question_type.trim() ? record.question_type : "other",
+    persona_mode: typeof record.persona_mode === "string" && record.persona_mode.trim() ? record.persona_mode : "default",
     target_audience: normalizeStringArray(record.target_audience),
     pain_points: normalizeStringArray(record.pain_points),
     recommended_angle: typeof record.recommended_angle === "string" ? record.recommended_angle : "",
@@ -418,4 +547,27 @@ function normalizeCachedTopicAgentOutput(value: unknown, questionTitle: string):
 
 function normalizeStringArray(value: unknown) {
   return Array.isArray(value) ? value.map((item) => String(item)).filter(Boolean) : [];
+}
+
+function buildWriterPromptSuffix(accountContext?: WriterAccountContext | null) {
+  const personaName = accountContext?.accountName?.trim();
+  if (!personaName) {
+    return null;
+  }
+
+  const lines = [
+    "Runtime supplement:",
+    `1. The active persona name for this run is "${personaName}". If the base prompt mentions another default name, override it with this persona.`,
+    "2. Keep account differentiation light and realistic. Do not force exaggerated role-play just to make accounts feel different.",
+    "3. Adjust tone, observation angle, and experience framing to fit this persona, while keeping the answer natural and useful.",
+    `4. Unless the topic truly needs explicit credibility setup, do not open with a self-introduction like "I am ${personaName}".`
+  ];
+
+  if (accountContext?.zhihuUserName?.trim()) {
+    lines.push(
+      `5. The mapped Zhihu username is "${accountContext.zhihuUserName.trim()}". Use it only as tone context when needed; do not force it into the article body.`
+    );
+  }
+
+  return lines.join("\n");
 }

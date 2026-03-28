@@ -9,6 +9,8 @@ export interface AppConfig {
   apiPort: number;
   webUrl: string;
   apiUrl: string;
+  feishuBotWebhookUrl: string | null;
+  feishuBotSecret: string | null;
   timezone: string;
   workspaceRoot: string;
   dataDir: string;
@@ -35,6 +37,8 @@ export function getAppConfig(): AppConfig {
     apiPort: Number(process.env.API_PORT ?? 8787),
     webUrl: process.env.WEB_URL ?? "http://localhost:3000",
     apiUrl: process.env.API_URL ?? "http://localhost:8787",
+    feishuBotWebhookUrl: normalizeOptionalEnvValue(process.env.FEISHU_BOT_WEBHOOK_URL),
+    feishuBotSecret: normalizeOptionalEnvValue(process.env.FEISHU_BOT_SECRET),
     timezone: process.env.APP_TIMEZONE ?? "Asia/Shanghai",
     workspaceRoot,
     dataDir: process.env.DATA_DIR ?? path.join(workspaceRoot, "data"),
@@ -165,4 +169,13 @@ function unquoteEnvValue(value: string) {
   }
 
   return value;
+}
+
+function normalizeOptionalEnvValue(value: string | undefined) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
 }

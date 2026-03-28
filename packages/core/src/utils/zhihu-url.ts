@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { getAppConfig } from "../config/env.js";
 
 export function normalizeZhihuQuestionUrl(rawUrl: string | null | undefined) {
@@ -20,4 +21,13 @@ export function normalizeZhihuQuestionUrl(rawUrl: string | null | undefined) {
   } catch {
     return null;
   }
+}
+
+export function hashZhihuQuestionUrl(rawUrl: string | null | undefined) {
+  const normalizedUrl = normalizeZhihuQuestionUrl(rawUrl);
+  if (!normalizedUrl) {
+    return null;
+  }
+
+  return createHash("sha256").update(normalizedUrl).digest("hex");
 }

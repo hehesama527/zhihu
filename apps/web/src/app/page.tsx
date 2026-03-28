@@ -1,19 +1,30 @@
 import Link from "next/link";
+import { AccountSwitcher } from "../components/account-switcher";
 import { StatusChip } from "../components/status-chip";
 import { WorkerPanel } from "../components/worker-panel";
-import { getDashboardSummary } from "../lib/api";
+import { getAccounts, getDashboardSummaryForAccount } from "../lib/api";
 
-export default async function DashboardPage() {
-  const summary = await getDashboardSummary();
+type DashboardPageProps = {
+  searchParams?: Promise<{
+    accountId?: string;
+  }>;
+};
+
+export default async function DashboardPage({ searchParams }: DashboardPageProps) {
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const selectedAccountId = parseAccountId(resolvedSearchParams?.accountId);
+  const [summary, accounts] = await Promise.all([getDashboardSummaryForAccount(selectedAccountId), getAccounts()]);
 
   return (
     <div className="stack">
       <section className="page-header">
         <div>
           <h2>系统总览</h2>
-          <p className="muted">先看账号状态、今日排期、最近发布结果和待人工处理项。</p>
+          <p className="muted">先看矩阵全局，再切到当前账号视图处理恢复、发文和人工干预。</p>
         </div>
       </section>
+
+      <AccountSwitcher accounts={accounts} selectedAccountId={summary.account?.id ?? selectedAccountId} basePath="/" />
 
       <section className="grid grid--four">
         <article className="card">
@@ -39,7 +50,7 @@ export default async function DashboardPage() {
           <div className="card-header">
             <div>
               <h3>今日排期</h3>
-              <p className="muted">工作日随机 3-4 篇，发布时间范围固定在 08:00-20:00。</p>
+              <p className="muted">工作日按账号各自生成 3-4 个发布时间，范围固定在 08:00-20:00。</p>
             </div>
             <Link href="/schedule" className="button button--ghost">
               查看完整排期
@@ -50,6 +61,7 @@ export default async function DashboardPage() {
             <table className="table">
               <thead>
                 <tr>
+                  <th>账号</th>
                   <th>时间</th>
                   <th>状态</th>
                   <th>任务</th>
@@ -59,6 +71,7 @@ export default async function DashboardPage() {
                 {summary.todaySchedule.length ? (
                   summary.todaySchedule.map((slot) => (
                     <tr key={slot.id}>
+                      <td>{slot.accountName ?? `账号 #${slot.accountId ?? "-"}`}</td>
                       <td>{new Date(slot.scheduledAt).toLocaleString("zh-CN")}</td>
                       <td>
                         <StatusChip status={slot.status} />
@@ -74,7 +87,7 @@ export default async function DashboardPage() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={3}>今天还没有排期。</td>
+                    <td colSpan={4}>今天还没有排期。</td>
                   </tr>
                 )}
               </tbody>
@@ -85,10 +98,10 @@ export default async function DashboardPage() {
         <article className="card">
           <div className="card-header">
             <div>
-              <h3>账号状态</h3>
+              <h3>当前账号视图</h3>
               <p className="muted">系统优先复用已保存登录态，只有登录失效时才需要人工介入。</p>
             </div>
-            <Link href="/account" className="button button--ghost">
+            <Link href={summary.account ? `/account?accountId=${summary.account.id}` : "/account"} className="button button--ghost">
               去恢复页
             </Link>
           </div>
@@ -108,12 +121,12 @@ export default async function DashboardPage() {
               <p className="muted">恢复原因：{summary.account.recoveryReason ?? "暂无"}</p>
             </div>
           ) : (
-            <p className="muted">还没有默认账号。</p>
+            <p className="muted">还没有账号。</p>
           )}
         </article>
       </section>
 
-      <WorkerPanel />
+      <WorkerPanel accountId={summary.account?.id ?? null} />
 
       <section className="grid grid--two">
         <article className="card">
@@ -143,13 +156,19 @@ export default async function DashboardPage() {
                       <td>
                         <div className="stack stack--tight">
                           <Link href={`/jobs/${job.id}`}>{job.title ?? `任务 #${job.id}`}</Link>
+                          <span className="muted">{job.questionTitle ?? "题目待绑定"}</span>
                           <span className="muted">{formatTime(job.scheduledAt)}</span>
                         </div>
                       </td>
                       <td>
                         <StatusChip status={job.displayStatus} />
                       </td>
-                      <td>{job.latestFailureType ?? job.lastErrorType ?? "-"}</td>
+                      <td>
+                        <div className="stack stack--tight">
+                          <span>{job.latestFailureType ?? job.lastErrorType ?? "-"}</span>
+                          <span className="muted">{job.failureReason ?? "暂无失败原因"}</span>
+                        </div>
+                      </td>
                     </tr>
                   ))
                 ) : (
@@ -212,6 +231,15 @@ export default async function DashboardPage() {
 
 function formatTime(value: string | null) {
   return value ? new Date(value).toLocaleString("zh-CN") : "暂无";
+}
+
+function parseAccountId(value?: string) {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 function formatValidity(status: string, reason: string | null) {

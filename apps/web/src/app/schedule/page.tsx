@@ -10,7 +10,7 @@ export default async function SchedulePage() {
       <section className="page-header">
         <div>
           <h2>排期中心</h2>
-          <p className="muted">固定工作日发布，08:00 到 20:00 随机 3-4 篇，周末休息。</p>
+          <p className="muted">固定工作日发布，每个账号 08:00 到 20:00 随机 3-4 篇，周末休息。</p>
         </div>
       </section>
 
@@ -33,6 +33,7 @@ function ScheduleTable({ slots }: { slots: Awaited<ReturnType<typeof getWeekSche
       <table className="table">
         <thead>
           <tr>
+            <th>账号</th>
             <th>时间</th>
             <th>状态</th>
             <th>任务</th>
@@ -42,6 +43,7 @@ function ScheduleTable({ slots }: { slots: Awaited<ReturnType<typeof getWeekSche
           {slots.length ? (
             slots.map((slot) => (
               <tr key={slot.id}>
+                <td>{slot.accountName ?? `账号 #${slot.accountId ?? "-"}`}</td>
                 <td>{new Date(slot.scheduledAt).toLocaleString("zh-CN")}</td>
                 <td>
                   <StatusChip status={slot.status} />
@@ -57,7 +59,7 @@ function ScheduleTable({ slots }: { slots: Awaited<ReturnType<typeof getWeekSche
             ))
           ) : (
             <tr>
-              <td colSpan={3}>当前范围内没有排期。</td>
+              <td colSpan={4}>当前范围内没有排期。</td>
             </tr>
           )}
         </tbody>

@@ -1,4 +1,5 @@
 import type { PromptSnapshotMap } from "@zhihu-mvp/shared";
+import { type AccountPromptContext, buildTopicPromptSuffix } from "./account-prompt-context.js";
 import { LlmService } from "./llm-service.js";
 
 export type TopicReviewScoreBreakdown = {
@@ -31,7 +32,8 @@ export class TopicReviewService {
       candidatePool: Array<{ id: number; title: string }>;
       pastTopicFingerprints: unknown[];
     },
-    promptSnapshot?: PromptSnapshotMap | null
+    promptSnapshot?: PromptSnapshotMap | null,
+    accountContext?: AccountPromptContext | null
   ) {
     const fallback: TopicReviewResult = {
       score: 25,
@@ -55,7 +57,8 @@ export class TopicReviewService {
     }
 
     const topicPrompt = await this.llmService.resolvePrompt("topic_agent", {
-      promptSnapshot
+      promptSnapshot,
+      promptSuffix: buildTopicPromptSuffix(accountContext)
     });
 
     const rawResult = await this.llmService.runJsonWithSystemPrompt<TopicReviewResult>(

@@ -4,24 +4,37 @@ import { JobRepository } from "../repositories/job-repository.js";
 import { ScheduleRepository } from "../repositories/schedule-repository.js";
 import { TopicRepository } from "../repositories/topic-repository.js";
 import { safeParseJson } from "../utils/json.js";
+import { ScheduleService } from "./schedule-service.js";
 
 export class DashboardService {
   constructor(
     private readonly accountRepository: AccountRepository,
+    private readonly scheduleService: ScheduleService,
     private readonly scheduleRepository: ScheduleRepository,
     private readonly jobRepository: JobRepository,
     private readonly topicRepository: TopicRepository
   ) {}
 
-  async getAccountView(accountId = 1): Promise<AccountStatusView | null> {
+  async getAccountView(accountId?: number): Promise<AccountStatusView | null> {
+    const resolvedAccountId = accountId ?? (await this.accountRepository.getPrimaryAccount())?.id;
+    if (!resolvedAccountId) {
+      return null;
+    }
+
     const [account, blockedJobs] = await Promise.all([
-      this.accountRepository.getAccount(accountId),
-      this.jobRepository.listBlockedJobs(accountId)
+      this.accountRepository.getAccount(resolvedAccountId),
+      this.jobRepository.listBlockedJobs(resolvedAccountId)
     ]);
 
     if (!account) {
       return null;
     }
+
+    const expectedProfileDir = this.accountRepository.getExpectedProfileDir(account.id);
+    const profileDirWarning =
+      account.profileDir && account.profileDir !== expectedProfileDir
+        ? `当前账号仍绑定历史 Profile 目录：${account.profileDir}。按当前矩阵口径，它应该落在 ${expectedProfileDir}。这通常表示这个账号沿用了早期单账号阶段的浏览器资产，可能出现账号资料和真实登录态不一致的问题。`
+        : null;
 
     const primaryBlockedJob = blockedJobs[0] ?? null;
     const resumeAnchor = primaryBlockedJob
@@ -35,19 +48,21 @@ export class DashboardService {
       recoveryReason: primaryBlockedJob?.failureReason ?? account.statusReason ?? null,
       resumeStage: primaryBlockedJob?.currentStage ?? null,
       returnUrl: typeof resumeAnchor.currentUrl === "string" ? resumeAnchor.currentUrl : null,
+      expectedProfileDir,
+      profileDirWarning,
       blockedJobs
     };
   }
 
-  async getSummary(): Promise<DashboardSummary> {
-    await this.scheduleRepository.ensureDailySchedule();
+  async getSummary(accountId?: number): Promise<DashboardSummary> {
+    await this.scheduleService.bootstrapTodaySchedule();
 
     const [account, todaySchedule, weekSchedule, recentJobs, recentTopics] = await Promise.all([
-      this.getAccountView(),
-      this.scheduleRepository.listScheduleForToday(),
-      this.scheduleRepository.listScheduleForWeek(),
-      this.jobRepository.listJobs(),
-      this.topicRepository.listTopics(8)
+      this.getAccountView(accountId),
+      this.scheduleRepository.listScheduleForToday(accountId),
+      this.scheduleRepository.listScheduleForWeek(accountId),
+      this.jobRepository.listJobs(accountId),
+      this.topicRepository.listTopics(8, accountId)
     ]);
 
     return {

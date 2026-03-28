@@ -45,6 +45,7 @@ export type FailureType =
   | "auth_required"
   | "login_required"
   | "session_expired"
+  | "account_identity_mismatch"
   | "challenge_required"
   | "duplicate_block"
   | "editor_not_ready"
@@ -149,6 +150,8 @@ export type PromptTestRunSummary = {
 
 export type ScheduleSlot = {
   id: number;
+  accountId: number | null;
+  accountName: string | null;
   scheduledAt: string;
   status: ScheduleSlotStatus;
   publishJobId: number | null;
@@ -294,11 +297,11 @@ export type JobListItem = {
   latestAttemptStatus: string | null;
   latestFailureType: FailureType | null;
   latestScreenshotPath: string | null;
+  questionTitle: string | null;
+  questionUrl: string | null;
 };
 
 export type JobDetail = JobListItem & {
-  questionTitle: string | null;
-  questionUrl: string | null;
   topicSummary: string | null;
   topicOutputJson: string | null;
   draftContent: string | null;
@@ -312,10 +315,23 @@ export type JobDetail = JobListItem & {
   contentDuplicationJson: string | null;
 };
 
+export type AccountListItem = {
+  id: number;
+  name: string;
+  zhihuUserName: string | null;
+  writerPromptVersionId: number | null;
+  status: string;
+  statusReason: string | null;
+  profileDir: string | null;
+  lastLoginCheckAt: string | null;
+  lastPublishAt: string | null;
+};
+
 export type AccountStatusView = {
   id: number;
   name: string;
   zhihuUserName: string | null;
+  writerPromptVersionId: number | null;
   status: string;
   statusReason: string | null;
   profileDir: string | null;
@@ -325,6 +341,8 @@ export type AccountStatusView = {
   recoveryReason: string | null;
   resumeStage: JobStage | null;
   returnUrl: string | null;
+  expectedProfileDir: string | null;
+  profileDirWarning: string | null;
   blockedJobs: JobListItem[];
 };
 

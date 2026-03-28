@@ -3,7 +3,11 @@
 import { useState, useTransition } from "react";
 import { fetchClientResponse, getClientApiBaseUrl } from "../lib/http";
 
-export function WorkerPanel() {
+type WorkerPanelProps = {
+  accountId: number | null;
+};
+
+export function WorkerPanel({ accountId }: WorkerPanelProps) {
   const [result, setResult] = useState("");
   const [pending, startTransition] = useTransition();
 
@@ -33,17 +37,24 @@ export function WorkerPanel() {
         <div>
           <h3>Worker 调度</h3>
           <p className="muted">需要立刻推进排期、选题、审核或发布时，可以手动跑一轮。</p>
+          <p className="helper-text">
+            {accountId === null ? "当前还没有选中账号。" : `当前“新建任务”会直接落到账号 #${accountId}。`}
+          </p>
         </div>
 
         <div className="button-row">
           <button
             className="button button--ghost"
-            disabled={pending}
+            disabled={pending || accountId === null}
             onClick={() =>
               startTransition(async () => {
                 try {
+                  if (accountId === null) {
+                    throw new Error("当前没有可用账号，暂时不能创建任务。");
+                  }
+
                   const payload = await call("/jobs", {
-                    accountId: 1
+                    accountId
                   });
                   setResult(JSON.stringify(payload, null, 2));
                 } catch (error) {

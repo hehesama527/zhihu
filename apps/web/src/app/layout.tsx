@@ -4,8 +4,8 @@ import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "知乎自动化 MVP",
-  description: "单账号知乎自动化发布系统 MVP 控制台"
+  title: "知乎矩阵自动化控制台",
+  description: "多账号知乎自动化发布、恢复与 Prompt 管理控制台"
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
@@ -25,8 +25,8 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
           <aside className="sidebar">
             <div className="brand">
               <span className="brand-kicker">Zhihu MVP</span>
-              <h1>单账号自动化控制台</h1>
-              <p>选题、写作、审核、发布、恢复和 Prompt 管理都放在这里。</p>
+              <h1>知乎矩阵控制台</h1>
+              <p>多账号选题、写作、审核、发布、恢复和 Prompt 管理都放在这里。</p>
             </div>
 
             <nav className="nav">
@@ -35,7 +35,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
               <Link href="/topics">Topics / Drafts</Link>
               <Link href="/publish-jobs">Publish Jobs</Link>
               <Link href="/prompts">Prompt Studio</Link>
-              <Link href="/account">账号恢复</Link>
+              <Link href="/account">账号</Link>
             </nav>
           </aside>
 

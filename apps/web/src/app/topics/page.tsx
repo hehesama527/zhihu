@@ -1,11 +1,24 @@
 import Link from "next/link";
-import { getDrafts, getTopicBatchPlan, getTopics } from "../../lib/api";
+import { AccountSwitcher } from "../../components/account-switcher";
+import { getAccounts, getDrafts, getTopicBatchPlan, getTopics } from "../../lib/api";
 
-export default async function TopicsPage() {
+type TopicsPageProps = {
+  searchParams?: Promise<{
+    accountId?: string;
+  }>;
+};
+
+export default async function TopicsPage({ searchParams }: TopicsPageProps) {
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const accounts = await getAccounts();
+  const requestedAccountId = parseAccountId(resolvedSearchParams?.accountId);
+  const selectedAccount = accounts.find((account) => account.id === requestedAccountId) ?? accounts[0] ?? null;
+  const selectedAccountId = selectedAccount?.id ?? null;
+
   const [topics, drafts, batchPlanResult] = await Promise.all([
-    getTopics(),
-    getDrafts(),
-    getTopicBatchPlan()
+    getTopics(selectedAccountId),
+    getDrafts(selectedAccountId),
+    getTopicBatchPlan(selectedAccountId)
       .then((plan) => ({ ok: true as const, plan }))
       .catch((error) => ({
         ok: false as const,
@@ -18,7 +31,37 @@ export default async function TopicsPage() {
       <section className="page-header">
         <div>
           <h2>Topics / Drafts</h2>
-          <p className="muted">查看题目池、有效性校验、重复性拦截结果和草稿审核状态。</p>
+          <p className="muted">切到不同账号后，这一页会只展示该账号自己的题目池、批次排序和草稿审核结果。</p>
+        </div>
+      </section>
+
+      <AccountSwitcher
+        accounts={accounts}
+        selectedAccountId={selectedAccountId}
+        basePath="/topics"
+        title="账号题库视图"
+        description="这里按账号隔离查看选题和草稿。切换账号后，题目池、批次排序和审核状态都会跟着切换。"
+      />
+
+      <section className="card">
+        <div className="grid grid--three">
+          <article className="stack stack--tight">
+            <h3>当前账号</h3>
+            <p>{selectedAccount?.name ?? "暂无账号"}</p>
+            <p className="muted">{selectedAccount?.zhihuUserName ?? "未填写知乎账号名"}</p>
+          </article>
+
+          <article className="stack stack--tight">
+            <h3>题目池数量</h3>
+            <p>{topics.length}</p>
+            <p className="muted">这里只统计当前账号名下的题目候选。</p>
+          </article>
+
+          <article className="stack stack--tight">
+            <h3>草稿数量</h3>
+            <p>{drafts.length}</p>
+            <p className="muted">这里只展示当前账号走到草稿与审核阶段的数据。</p>
+          </article>
         </div>
       </section>
 
@@ -26,7 +69,9 @@ export default async function TopicsPage() {
         <div className="card-header">
           <div>
             <h3>当前批次排序</h3>
-            <p className="muted">这一段只验证当前 10 个候选题的排序和首题选择，不推进到写作与发布。</p>
+            <p className="muted">
+              这段只验证当前账号视角下 10 个候选题的排序和首题选择，不推进到写作与发布。
+            </p>
           </div>
         </div>
 
@@ -35,11 +80,7 @@ export default async function TopicsPage() {
             <div className="stack stack--tight">
               <p>
                 当前首题：
-                {batchPlanResult.plan.selectedTitle ? (
-                  <strong>{batchPlanResult.plan.selectedTitle}</strong>
-                ) : (
-                  "暂无"
-                )}
+                {batchPlanResult.plan.selectedTitle ? <strong>{batchPlanResult.plan.selectedTitle}</strong> : "暂无"}
               </p>
               <p className="muted">{batchPlanResult.plan.summary}</p>
             </div>
@@ -65,7 +106,9 @@ export default async function TopicsPage() {
                         <td>
                           <div className="stack stack--tight">
                             <Link href={item.questionUrl}>{item.questionTitle}</Link>
-                            <span className="muted">{item.questionType ?? "未分类"} / {item.personaMode ?? "未设人设"}</span>
+                            <span className="muted">
+                              {item.questionType ?? "未分类"} / {item.personaMode ?? "未设人设"}
+                            </span>
                           </div>
                         </td>
                         <td>{item.sourceType}</td>
@@ -77,7 +120,7 @@ export default async function TopicsPage() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={7}>当前没有可排序的候选题。</td>
+                      <td colSpan={7}>当前账号还没有可排序的候选题。</td>
                     </tr>
                   )}
                 </tbody>
@@ -122,7 +165,7 @@ export default async function TopicsPage() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6}>还没有题目数据。</td>
+                  <td colSpan={6}>当前账号还没有题目数据。</td>
                 </tr>
               )}
             </tbody>
@@ -159,7 +202,7 @@ export default async function TopicsPage() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={4}>还没有草稿数据。</td>
+                  <td colSpan={4}>当前账号还没有草稿数据。</td>
                 </tr>
               )}
             </tbody>
@@ -180,4 +223,13 @@ function formatValidity(status: string, reason: string | null) {
   }
 
   return "待校验";
+}
+
+function parseAccountId(value?: string) {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }

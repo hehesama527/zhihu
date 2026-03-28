@@ -1,6 +1,7 @@
 import {
   AccountRepository,
   BrowserSkillService,
+  FeishuNotificationService,
   FailureResolutionService,
   HumanizerService,
   JobRepository,
@@ -28,9 +29,9 @@ await applySchemaMigrations(pool);
 
 const promptRepository = new PromptRepository(pool);
 const llmService = new LlmService(promptRepository);
-const scheduleRepository = new ScheduleRepository(pool);
-const scheduleService = new ScheduleService(scheduleRepository);
 const accountRepository = new AccountRepository(pool);
+const scheduleRepository = new ScheduleRepository(pool);
+const scheduleService = new ScheduleService(scheduleRepository, accountRepository);
 const topicRepository = new TopicRepository(pool);
 const topicBatchPlannerService = new TopicBatchPlannerService(llmService, topicRepository);
 const topicReviewService = new TopicReviewService(llmService);
@@ -50,6 +51,7 @@ const browserSkillService = new BrowserSkillService(runtime, jobRepository);
 const sessionService = new SessionService(browserSkillService, llmService);
 const topicDiscoveryService = new TopicDiscoveryService(topicRepository, browserSkillService, sessionService, llmService);
 const publishService = new PublishService(llmService, browserSkillService, sessionService);
+const feishuNotificationService = new FeishuNotificationService();
 const failureResolutionService = new FailureResolutionService(llmService);
 const runner = new WorkerRunner(
   scheduleService,
@@ -61,7 +63,8 @@ const runner = new WorkerRunner(
   jobRepository,
   publishService,
   failureResolutionService,
-  llmService
+  llmService,
+  feishuNotificationService
 );
 
 let timer: NodeJS.Timeout | null = null;
@@ -69,6 +72,7 @@ let stopped = false;
 
 async function boot() {
   await accountRepository.ensureDefaultAccount();
+  await accountRepository.normalizeProfileDirs();
 
   const loop = async () => {
     if (stopped) {

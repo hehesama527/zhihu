@@ -1,4 +1,5 @@
 import type {
+  AccountListItem,
   AccountStatusView,
   ArtifactSummary,
   DashboardSummary,
@@ -67,7 +68,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function getDashboardSummary() {
-  const data = await apiFetch<{ summary: DashboardSummary }>("/dashboard/summary");
+  const data = await apiFetch<{ summary: DashboardSummary }>(buildPathWithAccountId("/dashboard/summary"));
   return data.summary;
 }
 
@@ -81,18 +82,18 @@ export async function getWeekSchedule() {
   return data.slots;
 }
 
-export async function getTopics() {
-  const data = await apiFetch<{ topics: TopicListItem[] }>("/topics");
+export async function getTopics(accountId?: number | null) {
+  const data = await apiFetch<{ topics: TopicListItem[] }>(buildPathWithAccountId("/topics", accountId));
   return data.topics;
 }
 
-export async function getTopicBatchPlan() {
-  const data = await apiFetch<{ plan: TopicBatchPlan }>("/topics/batch-plan");
+export async function getTopicBatchPlan(accountId?: number | null) {
+  const data = await apiFetch<{ plan: TopicBatchPlan }>(buildPathWithAccountId("/topics/batch-plan", accountId));
   return data.plan;
 }
 
-export async function getDrafts() {
-  const data = await apiFetch<{ drafts: DraftListItem[] }>("/drafts");
+export async function getDrafts(accountId?: number | null) {
+  const data = await apiFetch<{ drafts: DraftListItem[] }>(buildPathWithAccountId("/drafts", accountId));
   return data.drafts;
 }
 
@@ -131,8 +132,18 @@ export async function getJobSkillRuns(jobId: number) {
   return data.skillRuns;
 }
 
-export async function getAccountStatus() {
-  const data = await apiFetch<{ account: AccountStatusView | null }>("/account/status");
+export async function getDashboardSummaryForAccount(accountId?: number | null) {
+  const data = await apiFetch<{ summary: DashboardSummary }>(buildPathWithAccountId("/dashboard/summary", accountId));
+  return data.summary;
+}
+
+export async function getAccounts() {
+  const data = await apiFetch<{ accounts: AccountListItem[] }>("/accounts");
+  return data.accounts;
+}
+
+export async function getAccountStatus(accountId?: number | null) {
+  const data = await apiFetch<{ account: AccountStatusView | null }>(buildPathWithAccountId("/account/status", accountId));
   return data.account;
 }
 
@@ -153,8 +164,8 @@ export async function postJson<T>(path: string, body?: unknown, method = "POST")
   });
 }
 
-export async function createJob() {
-  return postJson<CreateJobResponse>("/jobs", {});
+export async function createJob(accountId: number) {
+  return postJson<CreateJobResponse>("/jobs", { accountId });
 }
 
 export async function retryJob(jobId: number) {
@@ -180,4 +191,16 @@ function safeParseRecord(text: string) {
   } catch {
     return {} as Record<string, unknown>;
   }
+}
+
+function buildPathWithAccountId(path: string, accountId?: number | null) {
+  if (!accountId) {
+    return path;
+  }
+
+  const searchParams = new URLSearchParams({
+    accountId: String(accountId)
+  });
+
+  return `${path}?${searchParams.toString()}`;
 }

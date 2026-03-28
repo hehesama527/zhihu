@@ -12,3 +12,7 @@ tsconfig.tsbuildinfo
 .runlogs
 output
 data-edge
+.codex-runtime
+tmp-*.err
+tmp-*.out
+tmp-*.json

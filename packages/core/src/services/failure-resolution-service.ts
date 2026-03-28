@@ -29,11 +29,15 @@ function mapFailureWithRules(failureType: FailureType, retryCount: number): Fail
     failureType === "auth_required" ||
     failureType === "login_required" ||
     failureType === "session_expired" ||
+    failureType === "account_identity_mismatch" ||
     failureType === "challenge_required"
   ) {
     return {
       action: "MANUAL_LOGIN",
-      reason: "检测到登录失效、挑战页或风控状态，需要进入人工恢复。"
+      reason:
+        failureType === "account_identity_mismatch"
+          ? "当前 Profile 登录的不是目标账号，需要重新登录或重建该账号的 Profile。"
+          : "检测到登录失效、挑战页或风控状态，需要进入人工恢复。"
     };
   }
 

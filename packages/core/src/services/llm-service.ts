@@ -2,6 +2,7 @@ import type { PromptSetName, PromptSnapshotMap } from "@zhihu-mvp/shared";
 import { createOpenAiClient, readLlmRuntimeConfig } from "../config/llm-provider.js";
 import { getDefaultPromptSeed } from "../prompts/default-prompts.js";
 import { PromptRepository } from "../repositories/prompt-repository.js";
+import { getElapsedMs, logDebugTiming } from "../utils/debug-timing.js";
 import { extractResponseText, safeParseJson } from "../utils/json.js";
 import { createLlmTextResponse } from "../utils/llm-text.js";
 
@@ -17,6 +18,12 @@ export const ALL_PROMPT_SET_NAMES: PromptSetName[] = [
 
 type PromptRunOptions = {
   promptSnapshot?: PromptSnapshotMap | null;
+  promptSuffix?: string | null;
+};
+
+type PromptSnapshotBindingOptions = {
+  names?: PromptSetName[];
+  writerPromptVersionId?: number | null;
 };
 
 export class LlmService {
@@ -44,20 +51,71 @@ export class LlmService {
     return activeSnapshots;
   }
 
-  async resolvePrompt(promptSetName: PromptSetName, options?: PromptRunOptions) {
-    const snapshotPrompt = options?.promptSnapshot?.[promptSetName];
-    if (snapshotPrompt?.content) {
-      return snapshotPrompt.content;
+  async getPromptSnapshotForAccount(options?: PromptSnapshotBindingOptions) {
+    const names = options?.names ?? ALL_PROMPT_SET_NAMES;
+    const activeSnapshots = await this.getActivePromptSnapshot(names);
+    const writerPromptVersionId = options?.writerPromptVersionId ?? null;
+
+    if (!writerPromptVersionId || !names.includes("writer_agent")) {
+      return activeSnapshots;
     }
 
-    const activePrompt = await this.promptRepository.getActivePromptContent(promptSetName);
-    return activePrompt ?? getDefaultPromptSeed(promptSetName)?.content ?? "";
+    const writerSnapshot = await this.promptRepository.getPromptVersionSnapshotById(writerPromptVersionId);
+    if (writerSnapshot?.promptSetName === "writer_agent") {
+      activeSnapshots.writer_agent = writerSnapshot;
+    }
+
+    return activeSnapshots;
+  }
+
+  async resolvePrompt(promptSetName: PromptSetName, options?: PromptRunOptions) {
+    const snapshotPrompt = options?.promptSnapshot?.[promptSetName];
+    const basePrompt =
+      snapshotPrompt?.content ??
+      (await this.promptRepository.getActivePromptContent(promptSetName)) ??
+      getDefaultPromptSeed(promptSetName)?.content ??
+      "";
+
+    const promptSuffix = options?.promptSuffix?.trim();
+    if (promptSuffix) {
+      return `${basePrompt}\n\n${promptSuffix}`;
+    }
+
+    return basePrompt;
   }
 
   async runPrompt(promptSetName: PromptSetName, input: unknown, options?: PromptRunOptions) {
+    const startedAt = Date.now();
     const prompt = await this.resolvePrompt(promptSetName, options);
     const timeoutMs = getPromptTimeoutMs(promptSetName);
-    return this.runSystemPrompt(prompt, input, timeoutMs, `${promptSetName} returned empty response text.`);
+    logDebugTiming("llm.runPrompt", "start", {
+      promptSetName,
+      timeoutMs
+    });
+
+    try {
+      const responseText = await this.runSystemPrompt(
+        prompt,
+        input,
+        timeoutMs,
+        `${promptSetName} returned empty response text.`
+      );
+      logDebugTiming("llm.runPrompt", "done", {
+        promptSetName,
+        timeoutMs,
+        elapsedMs: getElapsedMs(startedAt),
+        outputLength: responseText.length
+      });
+      return responseText;
+    } catch (error) {
+      logDebugTiming("llm.runPrompt", "failed", {
+        promptSetName,
+        timeoutMs,
+        elapsedMs: getElapsedMs(startedAt),
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
   }
 
   async runJson<T>(promptSetName: PromptSetName, input: unknown, fallback: T, options?: PromptRunOptions) {
@@ -101,13 +159,32 @@ export class LlmService {
     fallback: T,
     timeoutMs = DEFAULT_LLM_REQUEST_TIMEOUT_MS
   ) {
-    const responseText = await this.runSystemPrompt(
-      systemPrompt,
-      input,
-      timeoutMs,
-      "custom system prompt returned empty response text."
-    );
-    return safeParseJson(responseText, fallback);
+    const startedAt = Date.now();
+    logDebugTiming("llm.runJsonWithSystemPrompt", "start", {
+      timeoutMs
+    });
+
+    try {
+      const responseText = await this.runSystemPrompt(
+        systemPrompt,
+        input,
+        timeoutMs,
+        "custom system prompt returned empty response text."
+      );
+      logDebugTiming("llm.runJsonWithSystemPrompt", "done", {
+        timeoutMs,
+        elapsedMs: getElapsedMs(startedAt),
+        outputLength: responseText.length
+      });
+      return safeParseJson(responseText, fallback);
+    } catch (error) {
+      logDebugTiming("llm.runJsonWithSystemPrompt", "failed", {
+        timeoutMs,
+        elapsedMs: getElapsedMs(startedAt),
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
   }
 }
 

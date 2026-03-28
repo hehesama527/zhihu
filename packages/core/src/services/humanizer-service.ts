@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { getAppConfig } from "../config/env.js";
 import { createOpenAiClient, readLlmRuntimeConfig, type LlmRuntimeConfig } from "../config/llm-provider.js";
 import { JobRepository } from "../repositories/job-repository.js";
+import { getElapsedMs, logDebugTiming } from "../utils/debug-timing.js";
 import { extractResponseText, parseJsonOrThrow } from "../utils/json.js";
 import { createLlmTextResponse } from "../utils/llm-text.js";
 
@@ -35,6 +36,11 @@ export class HumanizerService {
 
   async humanize(content: string, context?: HumanizerContext): Promise<HumanizerResponse> {
     const startedAt = Date.now();
+    logDebugTiming("humanizer.humanize", "start", {
+      publishJobId: context?.publishJobId ?? null,
+      stage: context?.stage ?? "humanizing",
+      contentLength: content.length
+    });
     const client = createOpenAiClient();
     const runtime = readLlmRuntimeConfig();
     const prompt = loadHumanizerPrompt();
@@ -115,6 +121,13 @@ export class HumanizerService {
         });
       }
 
+      logDebugTiming("humanizer.humanize", "done", {
+        publishJobId: context?.publishJobId ?? null,
+        stage: context?.stage ?? "humanizing",
+        elapsedMs: getElapsedMs(startedAt),
+        repairApplied: Boolean(repairedResponseText),
+        parseMode
+      });
       return parsed;
     } catch (error) {
       if (this.jobRepository) {
@@ -140,6 +153,12 @@ export class HumanizerService {
         });
       }
 
+      logDebugTiming("humanizer.humanize", "failed", {
+        publishJobId: context?.publishJobId ?? null,
+        stage: context?.stage ?? "humanizing",
+        elapsedMs: getElapsedMs(startedAt),
+        error: toErrorMessage(error)
+      });
       throw error;
     }
   }

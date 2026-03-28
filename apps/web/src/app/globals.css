@@ -42,6 +42,7 @@ a {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -231,6 +232,11 @@ pre {
   box-shadow: none;
 }
 
+.button--danger {
+  background: rgba(166, 61, 64, 0.1);
+  color: var(--danger);
+}
+
 .status-chip {
   display: inline-flex;
   align-items: center;
@@ -277,6 +283,7 @@ pre {
 }
 
 .field input,
+.field select,
 .field textarea {
   width: 100%;
   border: 1px solid var(--line);
@@ -327,6 +334,103 @@ pre {
   gap: 0.8rem;
 }
 
+.persona-prompt-layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.persona-account-list {
+  display: grid;
+  gap: 0.8rem;
+  align-content: start;
+}
+
+.persona-account-card {
+  display: grid;
+  gap: 0.45rem;
+  padding: 1rem;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.persona-account-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(197, 90, 17, 0.28);
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.persona-account-card--active {
+  border-color: rgba(197, 90, 17, 0.45);
+  background: rgba(255, 226, 197, 0.85);
+}
+
+.persona-account-card small {
+  color: var(--muted);
+}
+
+.persona-account-card__snippet {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.mini-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.24rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(114, 102, 93, 0.12);
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.mini-badge--accent {
+  background: rgba(197, 90, 17, 0.14);
+  color: var(--accent);
+}
+
+.prompt-preview-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.prompt-preview-shell {
+  max-height: 30rem;
+  overflow: auto;
+}
+
+.account-switcher-grid {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.account-switcher-card {
+  display: grid;
+  gap: 0.45rem;
+  padding: 1rem;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.72);
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.account-switcher-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(197, 90, 17, 0.28);
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.account-switcher-card--active {
+  border-color: rgba(197, 90, 17, 0.45);
+  background: rgba(255, 226, 197, 0.85);
+}
+
 .log-item {
   display: grid;
   gap: 0.65rem;
@@ -354,7 +458,9 @@ pre {
   .grid--two,
   .grid--three,
   .grid--four,
-  .prompt-studio {
+  .prompt-studio,
+  .persona-prompt-layout,
+  .prompt-preview-grid {
     grid-template-columns: 1fr;
   }
 }

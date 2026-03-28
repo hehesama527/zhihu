@@ -123,6 +123,11 @@ export class PromptRepository {
     return rows[0] ?? null;
   }
 
+  async getPromptVersionSnapshotById(id: number): Promise<PromptVersionSnapshot | null> {
+    const row = await this.getPromptVersionById(id);
+    return row ? mapPromptSnapshot(row) : null;
+  }
+
   async activatePromptVersion(id: number) {
     const promptVersion = await this.getPromptVersionById(id);
     if (!promptVersion) {
