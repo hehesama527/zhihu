@@ -9,6 +9,10 @@ import {
   HumanizerService,
   JobRepository,
   LlmService,
+  OpsDiagnosisService,
+  OpsIncidentRepository,
+  OpsIncidentService,
+  OpsScannerService,
   PlaywrightToolRuntime,
   PromptRepository,
   PromptService,
@@ -75,6 +79,13 @@ const topicDiscoveryService = new TopicDiscoveryService(topicRepository, browser
 const publishService = new PublishService(llmService, browserSkillService, sessionService);
 const feishuNotificationService = new FeishuNotificationService();
 const failureResolutionService = new FailureResolutionService(llmService);
+const opsIncidentRepository = new OpsIncidentRepository(pool);
+const opsDiagnosisService = new OpsDiagnosisService();
+const opsIncidentService = new OpsIncidentService(
+  opsIncidentRepository,
+  opsDiagnosisService,
+  feishuNotificationService
+);
 const dashboardService = new DashboardService(
   accountRepository,
   scheduleService,
@@ -93,7 +104,14 @@ const workerRunner = new WorkerRunner(
   publishService,
   failureResolutionService,
   llmService,
-  feishuNotificationService
+  feishuNotificationService,
+  opsIncidentService
+);
+const opsScannerService = new OpsScannerService(
+  opsIncidentService,
+  jobRepository,
+  accountRepository,
+  scheduleService
 );
 
 await app.register(cors, {
@@ -125,6 +143,25 @@ app.get("/health", async () => ({
 }));
 
 app.post("/notifications/feishu/test", async () => feishuNotificationService.sendTestNotification());
+
+app.get("/ops/summary", async () => ({
+  summary: await opsIncidentService.getSummary()
+}));
+
+app.get("/ops/incidents", async () => ({
+  incidents: await opsIncidentService.listIncidents()
+}));
+
+app.get("/ops/incidents/:id", async (request) => {
+  const params = request.params as { id: string };
+  return {
+    incident: await opsIncidentService.getIncidentById(Number(params.id))
+  };
+});
+
+app.post("/ops/scan", async () => ({
+  summary: await opsScannerService.scan()
+}));
 
 app.get("/dashboard/summary", async (request) => ({
   summary: await dashboardService.getSummary(parseOptionalAccountIdFromQuery(request))
@@ -554,6 +591,30 @@ app.post("/account/recovery/confirm", async (request) => {
       if (slot) {
         await scheduleRepository.updateSlotStatus(slot.id, "manual_login_required");
       }
+    }
+
+    try {
+      await opsIncidentService.reportIncident({
+        source: "manual_login",
+        severity: classifiedError.blockedByLogin ? "high" : "medium",
+        serviceName: "zhihu-api",
+        accountId: body.accountId,
+        jobId: body.publishJobId ?? null,
+        failureType: classifiedError.failureType,
+        title: `Manual login recovery failed for account #${body.accountId}`,
+        currentStage: "manual_login_required",
+        triggerStage: "manual_login_required",
+        entryUrl: returnUrl,
+        questionTitle: targetJob?.questionTitle ?? targetJob?.title ?? null,
+        rawErrorExcerpt: classifiedError.message,
+        evidence: {
+          blockedByLogin: classifiedError.blockedByLogin,
+          checkUrl,
+          returnUrl
+        }
+      });
+    } catch (reportError) {
+      app.log.error(reportError, "failed to report manual login incident");
     }
 
     return {

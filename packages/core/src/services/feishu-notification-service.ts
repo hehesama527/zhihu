@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone.js";
 import utc from "dayjs/plugin/utc.js";
-import type { FailureType, JobStage } from "@zhihu-mvp/shared";
+import type { FailureType, JobStage, OpsIncidentSeverity, OpsIncidentSource } from "@zhihu-mvp/shared";
 import { getAppConfig } from "../config/env.js";
 
 dayjs.extend(utc);
@@ -39,6 +39,24 @@ export type FeishuPublishSuccessNotificationInput = {
   publishedAt?: string | Date | null;
   scheduledAt?: string | Date | null;
   finalUrl: string | null;
+};
+
+export type FeishuOpsIncidentNotificationInput = {
+  serviceName: string;
+  severity: OpsIncidentSeverity;
+  source: OpsIncidentSource;
+  failureType: string | null;
+  accountId: number | null;
+  jobId: number | null;
+  title: string;
+  diagnosisSummary: string | null;
+  rootCause: string | null;
+  suggestedAction: string | null;
+  rawErrorExcerpt: string | null;
+  entryUrl: string | null;
+  currentStage: string | null;
+  triggerStage: string | null;
+  questionTitle: string | null;
 };
 
 export class FeishuNotificationService {
@@ -81,6 +99,30 @@ export class FeishuNotificationService {
     if (input.scheduledAt) {
       lines.push(`计划时间：${this.formatTime(input.scheduledAt)}`);
     }
+
+    return this.sendTextMessage(lines.join("\n"));
+  }
+
+  async sendOpsIncidentNotification(input: FeishuOpsIncidentNotificationInput): Promise<FeishuNotificationResult> {
+    const lines = [
+      "[Ops Incident]",
+      `Service: ${input.serviceName}`,
+      `Severity: ${input.severity}`,
+      `Source: ${input.source}`,
+      `Failure Type: ${formatValue(input.failureType)}`,
+      `Job: ${input.jobId != null ? `#${input.jobId}` : "N/A"}`,
+      `Account: ${input.accountId != null ? `#${input.accountId}` : "N/A"}`,
+      `Current Stage: ${formatValue(input.currentStage)}`,
+      `Trigger Stage: ${formatValue(input.triggerStage)}`,
+      `Question: ${formatValue(input.questionTitle)}`,
+      `Title: ${input.title}`,
+      `Summary: ${formatValue(input.diagnosisSummary)}`,
+      `Root Cause: ${formatValue(input.rootCause)}`,
+      `Key Error: ${formatValue(input.rawErrorExcerpt)}`,
+      `Suggested Action: ${formatValue(input.suggestedAction)}`,
+      `Entry: ${formatValue(input.entryUrl)}`,
+      `Detected At: ${this.formatTime(new Date())}`
+    ];
 
     return this.sendTextMessage(lines.join("\n"));
   }

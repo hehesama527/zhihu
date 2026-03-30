@@ -4,8 +4,8 @@ import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "知乎矩阵自动化控制台",
-  description: "多账号知乎自动化发布、恢复与 Prompt 管理控制台"
+  title: "Zhihu Matrix Control Center",
+  description: "Manage scheduling, topics, publishing, account recovery, prompts, and ops incidents."
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
@@ -25,17 +25,18 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
           <aside className="sidebar">
             <div className="brand">
               <span className="brand-kicker">Zhihu MVP</span>
-              <h1>知乎矩阵控制台</h1>
-              <p>多账号选题、写作、审核、发布、恢复和 Prompt 管理都放在这里。</p>
+              <h1>Zhihu Matrix Console</h1>
+              <p>Control content flow, publishing, account recovery, prompts, and ops diagnostics in one place.</p>
             </div>
 
             <nav className="nav">
-              <Link href="/">总览</Link>
-              <Link href="/schedule">排期</Link>
+              <Link href="/">Dashboard</Link>
+              <Link href="/schedule">Schedule</Link>
               <Link href="/topics">Topics / Drafts</Link>
               <Link href="/publish-jobs">Publish Jobs</Link>
               <Link href="/prompts">Prompt Studio</Link>
-              <Link href="/account">账号</Link>
+              <Link href="/account">Accounts</Link>
+              <Link href="/ops">Ops</Link>
             </nav>
           </aside>
 

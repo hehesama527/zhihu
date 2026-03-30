@@ -28,6 +28,7 @@ module.exports = {
   apps: [
     createApp("zhihu-api", "run start -w @zhihu-mvp/api"),
     createApp("zhihu-worker", "run start -w @zhihu-mvp/worker"),
+    createApp("zhihu-ops-agent", "run start -w @zhihu-mvp/ops-agent"),
     createApp("zhihu-web", "run start -w @zhihu-mvp/web -- --port 3000")
   ]
 };

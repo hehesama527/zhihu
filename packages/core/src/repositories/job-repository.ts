@@ -108,6 +108,16 @@ type SkillRunRow = RowDataPacket & {
   created_at: Date;
 };
 
+type StaleRunningAttemptRow = RowDataPacket & {
+  attempt_id: number;
+  publish_job_id: number;
+  account_id: number;
+  attempt_no: number;
+  created_at: Date;
+  current_stage: JobStage | null;
+  title: string | null;
+};
+
 type JobUpdateOptions = {
   failureReason?: string | null;
   finalUrl?: string | null;
@@ -392,6 +402,36 @@ export class JobRepository {
       [now]
     );
     return rows.map(mapJobRow);
+  }
+
+  async listStaleRunningAttempts(olderThanMinutes = 30) {
+    const cutoff = addMinutes(new Date(), -olderThanMinutes);
+    const [rows] = await this.pool.query<StaleRunningAttemptRow[]>(
+      `SELECT
+         pa.id AS attempt_id,
+         pa.publish_job_id,
+         pj.account_id,
+         pa.attempt_no,
+         pa.created_at,
+         pj.current_stage,
+         pj.title
+       FROM publish_attempts pa
+       JOIN publish_jobs pj ON pj.id = pa.publish_job_id
+       WHERE pa.status = 'running'
+         AND pa.created_at <= ?
+       ORDER BY pa.created_at ASC`,
+      [cutoff]
+    );
+
+    return rows.map((row) => ({
+      attemptId: row.attempt_id,
+      publishJobId: row.publish_job_id,
+      accountId: row.account_id,
+      attemptNo: row.attempt_no,
+      createdAt: row.created_at.toISOString(),
+      currentStage: row.current_stage ?? null,
+      title: row.title ?? null
+    }));
   }
 
   async retryJob(jobId: number) {

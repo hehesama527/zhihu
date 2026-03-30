@@ -9,6 +9,7 @@ import { hasManualLoginLock } from "../utils/manual-login-lock.js";
 import { FeishuNotificationService } from "./feishu-notification-service.js";
 import { FailureResolutionService } from "./failure-resolution-service.js";
 import { LlmService } from "./llm-service.js";
+import { OpsIncidentService } from "./ops-incident-service.js";
 import { PublishFlowError, PublishService, type PublishResumeAnchor } from "./publish-service.js";
 import { ScheduleService } from "./schedule-service.js";
 import { SessionStateError } from "./session-service.js";
@@ -38,7 +39,8 @@ export class WorkerRunner {
     private readonly publishService: PublishService,
     private readonly failureResolutionService: FailureResolutionService,
     private readonly llmService: LlmService,
-    private readonly feishuNotificationService: FeishuNotificationService
+    private readonly feishuNotificationService: FeishuNotificationService,
+    private readonly opsIncidentService?: OpsIncidentService
   ) {}
 
   async tick(): Promise<WorkerTickSummary> {
@@ -324,6 +326,16 @@ export class WorkerRunner {
           accountId: job.accountId,
           error: error instanceof Error ? error.message : String(error)
         });
+
+        if (isLlmConnectionError(error)) {
+          // LLM 连接失败不终止任务，留给下一轮 tick 自动重试
+          console.error("[worker] LLM connection error during prepare, will retry next tick", {
+            jobId: job.id,
+            error: error instanceof Error ? error.message : String(error)
+          });
+          continue;
+        }
+
         await this.failJob(
           job.id,
           job.scheduleSlotId,
@@ -893,17 +905,36 @@ export class WorkerRunner {
       await this.scheduleRepository.updateSlotStatus(slotId, "failed");
     }
 
-    await this.feishuNotificationService.sendProblemNotification({
-      accountName: account?.name ?? (jobDetail ? `账号#${jobDetail.accountId}` : `账号任务#${jobId}`),
-      zhihuUserName: account?.zhihuUserName ?? null,
-      jobId,
-      currentStage: "failed_terminal",
-      triggerStage,
-      failureType,
-      failureReason: message,
-      questionTitle: jobDetail?.questionTitle ?? jobDetail?.title ?? null,
-      entryUrl
-    });
+    await this.reportOpsProblem(
+      {
+        source: "worker_job",
+        severity: mapFailureSeverity(failureType),
+        serviceName: "zhihu-worker",
+        accountId: account?.id ?? jobDetail?.accountId ?? null,
+        jobId,
+        failureType,
+        title: `Publish job #${jobId} failed`,
+        currentStage: "failed_terminal",
+        triggerStage,
+        entryUrl,
+        questionTitle: jobDetail?.questionTitle ?? jobDetail?.title ?? null,
+        rawErrorExcerpt: message,
+        evidence: {
+          topicCardId: topicCardId ?? null
+        }
+      },
+      {
+        accountName: account?.name ?? (jobDetail ? `账号#${jobDetail.accountId}` : `账号任务#${jobId}`),
+        zhihuUserName: account?.zhihuUserName ?? null,
+        jobId,
+        currentStage: "failed_terminal",
+        triggerStage,
+        failureType,
+        failureReason: message,
+        questionTitle: jobDetail?.questionTitle ?? jobDetail?.title ?? null,
+        entryUrl
+      }
+    );
   }
 
   private async tryFinalizePublishedFromExistingResult(input: {
@@ -1100,18 +1131,53 @@ export class WorkerRunner {
       }
     }
 
-    await this.feishuNotificationService.sendProblemNotification({
-      accountName: account?.name ?? `账号#${accountId}`,
-      zhihuUserName: account?.zhihuUserName ?? null,
-      jobId: targetJob?.id ?? options?.jobId ?? null,
-      currentStage: "manual_login_required",
-      triggerStage,
-      failureType: options?.failureType ?? "login_required",
-      failureReason: reason,
-      questionTitle: targetJob?.questionTitle ?? targetJob?.title ?? null,
-      entryUrl,
-      note: targetJob ? null : "当前为账号级阻塞，无关联发布任务。"
-    });
+    await this.reportOpsProblem(
+      {
+        source: "manual_login",
+        severity: "high",
+        serviceName: "zhihu-worker",
+        accountId,
+        jobId: targetJob?.id ?? options?.jobId ?? null,
+        failureType: options?.failureType ?? "login_required",
+        title: `Account #${accountId} requires manual login`,
+        currentStage: "manual_login_required",
+        triggerStage,
+        entryUrl,
+        questionTitle: targetJob?.questionTitle ?? targetJob?.title ?? null,
+        rawErrorExcerpt: reason,
+        evidence: {
+          note: targetJob ? null : "Account-level block without a linked publish job."
+        }
+      },
+      {
+        accountName: account?.name ?? `账号#${accountId}`,
+        zhihuUserName: account?.zhihuUserName ?? null,
+        jobId: targetJob?.id ?? options?.jobId ?? null,
+        currentStage: "manual_login_required",
+        triggerStage,
+        failureType: options?.failureType ?? "login_required",
+        failureReason: reason,
+        questionTitle: targetJob?.questionTitle ?? targetJob?.title ?? null,
+        entryUrl,
+        note: targetJob ? null : "当前为账号级阻塞，无关联发布任务。"
+      }
+    );
+  }
+
+  private async reportOpsProblem(
+    incidentInput: Parameters<OpsIncidentService["reportIncident"]>[0],
+    fallbackInput: Parameters<FeishuNotificationService["sendProblemNotification"]>[0]
+  ) {
+    if (this.opsIncidentService) {
+      try {
+        await this.opsIncidentService.reportIncident(incidentInput);
+        return;
+      } catch (error) {
+        console.error("[worker] failed to report ops incident", error);
+      }
+    }
+
+    await this.feishuNotificationService.sendProblemNotification(fallbackInput);
   }
 
   private async ensurePromptSnapshot(
@@ -1156,12 +1222,41 @@ function normalizePublishError(error: unknown) {
     };
   }
 
+  if (isLlmConnectionError(error)) {
+    return {
+      failureType: "llm_connection_error" as FailureType,
+      message: error instanceof Error ? error.message : "LLM 连接失败。",
+      currentUrl: null,
+      meta: {}
+    };
+  }
+
   return {
     failureType: "network_or_page_error" as FailureType,
     message: error instanceof Error ? error.message : "发布流程发生未知错误。",
     currentUrl: null,
     meta: {}
   };
+}
+
+function isLlmConnectionError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const msg = error.message.toLowerCase();
+  // 覆盖常见的网络/连接类错误关键词
+  return (
+    msg.includes("connection error") ||
+    msg.includes("econnrefused") ||
+    msg.includes("econnreset") ||
+    msg.includes("etimedout") ||
+    msg.includes("fetch failed") ||
+    msg.includes("network error") ||
+    msg.includes("socket hang up") ||
+    msg.includes("llm did not return") ||
+    msg.includes("llm stream idle") ||
+    msg.includes("llm returned an empty stream")
+  );
 }
 
 function mapSessionFailureType(sessionState: SessionStateError["sessionState"]): FailureType {
@@ -1283,4 +1378,22 @@ function buildBlockedSummary(totalAccounts: number, blockedAccounts: number, blo
       : `${blockedAccounts} 个账号被登录状态阻塞，其余账号继续执行。`;
 
   return firstMessage ? `${prefix} ${firstMessage}` : prefix;
+}
+
+function mapFailureSeverity(failureType: FailureType) {
+  if (
+    failureType === "auth_required" ||
+    failureType === "login_required" ||
+    failureType === "session_expired" ||
+    failureType === "account_identity_mismatch" ||
+    failureType === "challenge_required"
+  ) {
+    return "high" as const;
+  }
+
+  if (failureType === "llm_connection_error" || failureType === "network_or_page_error" || failureType === "unknown_failure") {
+    return "critical" as const;
+  }
+
+  return "medium" as const;
 }

@@ -7,13 +7,13 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build -w @zhihu-mvp/shared && npm run build -w @zhihu-mvp/core && npm run build -w @zhihu-mvp/api && npm run build -w @zhihu-mvp/worker && npm run build -w @zhihu-mvp/web",
-    "dev": "concurrently -n API,WORKER,WEB -c blue,magenta,green \"npm run dev -w @zhihu-mvp/api\" \"npm run dev -w @zhihu-mvp/worker\" \"npm run dev -w @zhihu-mvp/web\"",
-    "dev:backend": "concurrently -n API,WORKER -c blue,magenta \"npm run dev -w @zhihu-mvp/api\" \"npm run dev -w @zhihu-mvp/worker\"",
+    "build": "npm run build -w @zhihu-mvp/shared && npm run build -w @zhihu-mvp/core && npm run build -w @zhihu-mvp/api && npm run build -w @zhihu-mvp/worker && npm run build -w @zhihu-mvp/ops-agent && npm run build -w @zhihu-mvp/web",
+    "dev": "concurrently -n API,WORKER,OPS,WEB -c blue,magenta,cyan,green \"npm run dev -w @zhihu-mvp/api\" \"npm run dev -w @zhihu-mvp/worker\" \"npm run dev -w @zhihu-mvp/ops-agent\" \"npm run dev -w @zhihu-mvp/web\"",
+    "dev:backend": "concurrently -n API,WORKER,OPS -c blue,magenta,cyan \"npm run dev -w @zhihu-mvp/api\" \"npm run dev -w @zhihu-mvp/worker\" \"npm run dev -w @zhihu-mvp/ops-agent\"",
     "dev:frontend": "npm run dev -w @zhihu-mvp/web",
     "db:init": "npm run db:init -w @zhihu-mvp/api",
     "lint": "npm run lint -w @zhihu-mvp/web",
-    "typecheck": "npm run typecheck -w @zhihu-mvp/shared && npm run typecheck -w @zhihu-mvp/core && npm run typecheck -w @zhihu-mvp/api && npm run typecheck -w @zhihu-mvp/worker && npm run typecheck -w @zhihu-mvp/web"
+    "typecheck": "npm run typecheck -w @zhihu-mvp/shared && npm run typecheck -w @zhihu-mvp/core && npm run typecheck -w @zhihu-mvp/api && npm run typecheck -w @zhihu-mvp/worker && npm run typecheck -w @zhihu-mvp/ops-agent && npm run typecheck -w @zhihu-mvp/web"
   },
   "devDependencies": {
     "@types/node": "^24.0.3",

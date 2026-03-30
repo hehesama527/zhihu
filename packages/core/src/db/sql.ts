@@ -237,6 +237,34 @@ CREATE TABLE IF NOT EXISTS prompt_test_runs (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_prompt_test_runs_version FOREIGN KEY (prompt_version_id) REFERENCES prompt_versions(id)
 );
+
+CREATE TABLE IF NOT EXISTS ops_incidents (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  fingerprint CHAR(64) NOT NULL,
+  source VARCHAR(64) NOT NULL,
+  severity VARCHAR(32) NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'open',
+  service_name VARCHAR(64) NOT NULL,
+  account_id INT NULL,
+  job_id INT NULL,
+  failure_type VARCHAR(128) NULL,
+  title VARCHAR(255) NOT NULL,
+  diagnosis_summary LONGTEXT NULL,
+  root_cause LONGTEXT NULL,
+  suggested_action LONGTEXT NULL,
+  raw_error_excerpt LONGTEXT NULL,
+  evidence_json LONGTEXT NULL,
+  notification_delivery VARCHAR(32) NULL,
+  notification_message LONGTEXT NULL,
+  notified_at DATETIME NULL,
+  resolved_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_ops_incidents_fingerprint (fingerprint),
+  INDEX idx_ops_incidents_status_severity (status, severity, updated_at),
+  INDEX idx_ops_incidents_service_status (service_name, status, updated_at),
+  INDEX idx_ops_incidents_job_status (job_id, status, updated_at)
+);
 `;
 
 type ColumnMigration = {

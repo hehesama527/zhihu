@@ -6,6 +6,10 @@ import type {
   DraftListItem,
   JobDetail,
   JobListItem,
+  OpsIncidentDetail,
+  OpsIncidentSummary,
+  OpsScanSummary,
+  OpsSummary,
   PromptSetName,
   PromptSetView,
   PublishAttemptSummary,
@@ -178,6 +182,26 @@ export async function reselectTopic(jobId: number) {
 
 export async function runWorkerTick() {
   const data = await postJson<{ summary: WorkerTickSummary }>("/worker/tick");
+  return data.summary;
+}
+
+export async function getOpsSummary() {
+  const data = await apiFetch<{ summary: OpsSummary }>("/ops/summary");
+  return data.summary;
+}
+
+export async function getOpsIncidents() {
+  const data = await apiFetch<{ incidents: OpsIncidentSummary[] }>("/ops/incidents");
+  return data.incidents;
+}
+
+export async function getOpsIncident(id: number) {
+  const data = await apiFetch<{ incident: OpsIncidentDetail | null }>(`/ops/incidents/${id}`);
+  return data.incident;
+}
+
+export async function runOpsScan() {
+  const data = await postJson<{ summary: OpsScanSummary }>("/ops/scan");
   return data.summary;
 }
 

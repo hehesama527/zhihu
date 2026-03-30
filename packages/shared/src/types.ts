@@ -55,6 +55,7 @@ export type FailureType =
   | "content_risk_block"
   | "topic_invalid"
   | "review_block"
+  | "llm_connection_error"
   | "unknown_failure";
 
 export type RecoveryAction =
@@ -369,4 +370,63 @@ export type WorkerTickSummary = {
   blockedByLogin: boolean;
   accountStatus: string;
   message: string | null;
+};
+
+export type OpsIncidentSeverity = "critical" | "high" | "medium" | "low";
+
+export type OpsIncidentStatus = "open" | "resolved";
+
+export type OpsIncidentSource =
+  | "worker_job"
+  | "manual_login"
+  | "worker_runtime"
+  | "api_health"
+  | "pm2_scan"
+  | "log_scan"
+  | "publish_attempt_scan"
+  | "schedule_scan";
+
+export type OpsIncidentNotificationDelivery = "sent" | "disabled" | "failed";
+
+export type OpsIncidentSummary = {
+  id: number;
+  fingerprint: string;
+  source: OpsIncidentSource;
+  severity: OpsIncidentSeverity;
+  status: OpsIncidentStatus;
+  serviceName: string;
+  accountId: number | null;
+  jobId: number | null;
+  failureType: string | null;
+  title: string;
+  diagnosisSummary: string | null;
+  rootCause: string | null;
+  suggestedAction: string | null;
+  rawErrorExcerpt: string | null;
+  notificationDelivery: OpsIncidentNotificationDelivery | null;
+  notificationMessage: string | null;
+  notifiedAt: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type OpsIncidentDetail = OpsIncidentSummary & {
+  evidenceJson: string | null;
+};
+
+export type OpsScanSummary = {
+  scannedAt: string;
+  createdCount: number;
+  dedupedCount: number;
+  notifiedCount: number;
+  resolvedCount: number;
+  openCount: number;
+};
+
+export type OpsSummary = {
+  openCount: number;
+  criticalCount: number;
+  highCount: number;
+  recentIncidents: OpsIncidentSummary[];
 };

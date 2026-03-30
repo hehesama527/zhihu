@@ -41,6 +41,13 @@ function mapFailureWithRules(failureType: FailureType, retryCount: number): Fail
     };
   }
 
+  if (failureType === "llm_connection_error") {
+    return {
+      action: retryCount >= 2 ? "TERMINAL_FAIL" : "RETRY_SAME_SESSION",
+      reason: retryCount >= 2 ? "LLM 连接多次失败，终止本次任务。" : "LLM 连接失败，等下一轮自动重试。"
+    };
+  }
+
   if (failureType === "duplicate_block") {
     return {
       action: "RESELECT_TOPIC",

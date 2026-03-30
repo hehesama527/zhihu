@@ -28,27 +28,29 @@ export interface LlmRuntimeConfig {
 
 const require = createRequire(import.meta.url);
 
-export function readLlmRuntimeConfig(): LlmRuntimeConfig {
+export type LlmConfigScope = "zhihu" | "ops";
+
+export function readLlmRuntimeConfig(scope: LlmConfigScope = "zhihu"): LlmRuntimeConfig {
   const config = getAppConfig();
   const parsedToml = readCodexToml(config.codexConfigPath);
   const parsedAuth = readCodexAuth(config.codexAuthPath);
-  const providerName = readScopedEnv("PROVIDER") ?? parsedToml.model_provider ?? "sub2api";
+  const providerName = readScopedEnv(scope, "PROVIDER") ?? parsedToml.model_provider ?? "sub2api";
   const providerConfig = parsedToml.model_providers?.[providerName] ?? {};
-  const baseUrl = readScopedEnv("BASE_URL") ?? providerConfig.base_url ?? "https://vpsairobot.com";
-  const apiKey = readScopedEnv("API_KEY") ?? parsedAuth.OPENAI_API_KEY;
+  const baseUrl = readScopedEnv(scope, "BASE_URL") ?? providerConfig.base_url ?? "https://vpsairobot.com";
+  const apiKey = readScopedEnv(scope, "API_KEY") ?? parsedAuth.OPENAI_API_KEY;
 
   if (!apiKey) {
     throw new Error("Missing LLM_API_KEY in project env or OPENAI_API_KEY in ~/.codex/auth.json");
   }
 
   return {
-    model: readScopedEnv("MODEL") ?? parsedToml.model ?? "gpt-5.4",
-    reasoningEffort: normalizeReasoning(readScopedEnv("REASONING_EFFORT") ?? parsedToml.model_reasoning_effort),
+    model: readScopedEnv(scope, "MODEL") ?? parsedToml.model ?? "gpt-5.4",
+    reasoningEffort: normalizeReasoning(readScopedEnv(scope, "REASONING_EFFORT") ?? parsedToml.model_reasoning_effort),
     baseUrl,
     apiKey,
     proxyUrl: resolveProxyUrl(),
-    wireApi: normalizeWireApi(readScopedEnv("WIRE_API") ?? providerConfig.wire_api),
-    requestTimeoutMs: normalizeRequestTimeout(readScopedEnv("REQUEST_TIMEOUT_MS"))
+    wireApi: normalizeWireApi(readScopedEnv(scope, "WIRE_API") ?? providerConfig.wire_api),
+    requestTimeoutMs: normalizeRequestTimeout(readScopedEnv(scope, "REQUEST_TIMEOUT_MS"))
   };
 }
 
@@ -68,8 +70,11 @@ function readCodexAuth(filePath: string): CodexAuthConfig {
   return JSON.parse(fs.readFileSync(filePath, "utf8")) as CodexAuthConfig;
 }
 
-function readScopedEnv(name: string) {
-  const candidates = [`ZHIHU_AGENT_${name}`, `LLM_${name}`];
+function readScopedEnv(scope: LlmConfigScope, name: string) {
+  const candidates =
+    scope === "ops"
+      ? [`OPS_AGENT_${name}`, `LLM_${name}`]
+      : [`ZHIHU_AGENT_${name}`, `LLM_${name}`];
 
   for (const key of candidates) {
     const value = process.env[key]?.trim();
@@ -96,8 +101,8 @@ function normalizeWireApi(value?: string): "responses" | "chat_completions" {
   return "responses";
 }
 
-export function createOpenAiClient() {
-  const runtime = readLlmRuntimeConfig();
+export function createOpenAiClient(scope: LlmConfigScope = "zhihu") {
+  const runtime = readLlmRuntimeConfig(scope);
   return new OpenAI({
     apiKey: runtime.apiKey,
     baseURL: runtime.baseUrl,

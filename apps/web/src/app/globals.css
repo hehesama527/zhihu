@@ -249,7 +249,9 @@ pre {
 
 .status-chip--published,
 .status-chip--review-passed,
-.status-chip--ready-to-publish {
+.status-chip--ready-to-publish,
+.status-chip--resolved,
+.status-chip--low {
   background: rgba(45, 124, 88, 0.15);
   color: var(--success);
 }
@@ -257,12 +259,15 @@ pre {
 .status-chip--failed,
 .status-chip--failed-terminal,
 .status-chip--publish-failed,
-.status-chip--review-rejected {
+.status-chip--review-rejected,
+.status-chip--critical {
   background: rgba(166, 61, 64, 0.16);
   color: var(--danger);
 }
 
-.status-chip--manual-login-required {
+.status-chip--manual-login-required,
+.status-chip--high,
+.status-chip--open {
   background: rgba(159, 107, 0, 0.16);
   color: var(--warning);
 }
@@ -271,7 +276,8 @@ pre {
 .status-chip--publishing,
 .status-chip--login-checking,
 .status-chip--reviewing,
-.status-chip--queued {
+.status-chip--queued,
+.status-chip--medium {
   background: rgba(60, 92, 167, 0.14);
   color: #3750a3;
 }

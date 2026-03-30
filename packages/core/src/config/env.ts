@@ -20,6 +20,7 @@ export interface AppConfig {
   humanizerSkillPath: string;
   browserChannel: SupportedBrowserChannel;
   workerIntervalMs: number;
+  opsAgentIntervalMs: number;
   topicKeywords: string[];
   zhihuBaseUrl: string;
 }
@@ -49,6 +50,7 @@ export function getAppConfig(): AppConfig {
       process.env.HUMANIZER_SKILL_PATH ?? path.join(codexHome, "skills", "humanizer-zh", "SKILL.md"),
     browserChannel: normalizeBrowserChannel(process.env.BROWSER_CHANNEL),
     workerIntervalMs: Number(process.env.WORKER_INTERVAL_MS ?? 45_000),
+    opsAgentIntervalMs: Number(process.env.OPS_AGENT_INTERVAL_MS ?? 60_000),
     topicKeywords: (process.env.TOPIC_KEYWORDS ??
       "币圈新手,加密货币市场,币圈交易,交易策略,止盈止损,趋势和震荡判断,量化回测,策略验证,可视化回测")
       .split(",")
