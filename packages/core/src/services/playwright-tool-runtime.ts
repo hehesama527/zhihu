@@ -187,28 +187,33 @@ export class PlaywrightToolRuntime {
   }
 
   async closeSession(sessionKey: string) {
-    const existing = this.sessions.get(sessionKey);
-    if (!existing) {
-      return;
-    }
+    await this.disposeSession(sessionKey, {
+      closeContext: true
+    });
+  }
 
-    try {
-      await existing.context.close();
-    } finally {
-      await releaseProfileLock(existing.lockPath, existing.lockOwner);
-      this.sessions.delete(sessionKey);
-    }
+  hasSession(sessionKey: string) {
+    return this.sessions.has(sessionKey);
   }
 
   async restartSession(traceContext: RuntimeTraceContext) {
-    await this.closeSession(traceContext.sessionKey);
+    await this.disposeSession(traceContext.sessionKey, {
+      closeContext: true
+    });
+    await wait(500);
     await this.ensureSession(traceContext);
   }
 
   private async ensureSession(traceContext: RuntimeTraceContext) {
     const existing = this.sessions.get(traceContext.sessionKey);
     if (existing) {
-      return existing;
+      if (!existing.page.isClosed()) {
+        return existing;
+      }
+
+      await this.disposeSession(traceContext.sessionKey, {
+        closeContext: true
+      });
     }
 
     const browserChannel = getAppConfig().browserChannel;
@@ -245,6 +250,23 @@ export class PlaywrightToolRuntime {
     }
   }
 
+  private async disposeSession(sessionKey: string, options?: { closeContext?: boolean }) {
+    const existing = this.sessions.get(sessionKey);
+    if (!existing) {
+      return;
+    }
+
+    this.sessions.delete(sessionKey);
+
+    try {
+      if (options?.closeContext !== false) {
+        await existing.context.close().catch(() => undefined);
+      }
+    } finally {
+      await releaseProfileLock(existing.lockPath, existing.lockOwner).catch(() => undefined);
+    }
+  }
+
   private async runWithTrace<T>(
     traceContext: RuntimeTraceContext,
     action: ToolTraceAction,
@@ -271,6 +293,12 @@ export class PlaywrightToolRuntime {
       });
       return result;
     } catch (error) {
+      if (isPageOrContextClosedError(error)) {
+        await this.disposeSession(traceContext.sessionKey, {
+          closeContext: true
+        });
+      }
+
       await this.recordTrace({
         traceContext,
         traceId,
@@ -334,7 +362,7 @@ export class PlaywrightToolRuntime {
   }
 
   private async readSnapshot(page: Page): Promise<PageSnapshot> {
-    const [editorButtons, buttons, visibleTexts, headings, links, questionLinks, editorContent] = await Promise.all([
+    const [editorButtons, buttons, submitButtons, visibleTexts, headings, links, questionLinks, editorContent] = await Promise.all([
       collectTexts(
         page,
         [
@@ -346,6 +374,13 @@ export class PlaywrightToolRuntime {
         20
       ),
       collectTexts(page, ["button", "[role='button']"], 40),
+      collectMatchedTexts(
+        page,
+        [".AnswerForm button", "[class*='AnswerForm'] button", "button", "[role='button']"],
+        /发布回答|提交回答|更新回答|保存修改|发布修改/,
+        12,
+        200
+      ),
       collectTexts(page, ["h1", "h2", "h3", "p", "button", "a", "[contenteditable='true']"], 90),
       collectTexts(page, ["h1", "h2", "h3"], 12),
       collectLinks(page, "a[href]", 30),
@@ -359,7 +394,7 @@ export class PlaywrightToolRuntime {
       url: page.url(),
       title: await page.title(),
       visibleTexts: dedupedTexts,
-      buttons: dedupeStrings([...editorButtons, ...buttons]).slice(0, 40),
+      buttons: dedupeStrings([...submitButtons, ...editorButtons, ...buttons]).slice(0, 48),
       links,
       questionLinks,
       editorContent,
@@ -484,6 +519,30 @@ async function collectTexts(page: Page, selectors: string[], limit: number) {
       if (text) {
         texts.push(text);
       }
+      if (texts.length >= limit) {
+        return dedupeStrings(texts).slice(0, limit);
+      }
+    }
+  }
+
+  return dedupeStrings(texts).slice(0, limit);
+}
+
+async function collectMatchedTexts(page: Page, selectors: string[], pattern: RegExp, limit: number, sampleLimit: number) {
+  const texts: string[] = [];
+
+  for (const selector of selectors) {
+    const locator = page.locator(selector);
+    const count = await locator.count();
+    const indexes = buildSampleIndexes(count, sampleLimit);
+
+    for (const index of indexes) {
+      const text = (await locator.nth(index).textContent())?.replace(/\s+/g, " ").trim();
+      if (!text || !pattern.test(text)) {
+        continue;
+      }
+
+      texts.push(text);
       if (texts.length >= limit) {
         return dedupeStrings(texts).slice(0, limit);
       }
@@ -680,6 +739,15 @@ function isPointerInterceptedError(error: unknown) {
   return Boolean(
     error instanceof Error &&
       (error.message.includes("intercepts pointer events") || error.message.includes("another element"))
+  );
+}
+
+function isPageOrContextClosedError(error: unknown) {
+  return Boolean(
+    error instanceof Error &&
+      (error.message.includes("Target page, context or browser has been closed") ||
+        error.message.includes("Target closed") ||
+        error.message.includes("Browser has been closed"))
   );
 }
 

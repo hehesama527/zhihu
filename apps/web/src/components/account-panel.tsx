@@ -16,6 +16,7 @@ type RecoveryResponse = {
   ok?: boolean;
   blockedByLogin?: boolean;
   message?: string | null;
+  resumedByWorker?: boolean;
   summary?: {
     blockedByLogin?: boolean;
     message?: string | null;
@@ -25,6 +26,8 @@ type RecoveryResponse = {
 type ManualLoginStartResponse = {
   browserMode?: string | null;
   loginUrl?: string | null;
+  preservedExistingPage?: boolean;
+  message?: string | null;
 };
 
 export function AccountPanel({ account, writerPromptSet }: AccountPanelProps) {
@@ -127,10 +130,19 @@ export function AccountPanel({ account, writerPromptSet }: AccountPanelProps) {
 
     router.refresh();
 
+    if (payload.preservedExistingPage) {
+      setMessage(
+        payload.message ??
+          "系统已经保留原发布页面，请直接在那个浏览器窗口里处理安全验证或反爬挑战，不要再重复打开新的人工登录窗口。"
+      );
+      return;
+    }
+
     const browserMode = payload.browserMode ?? "浏览器";
     const loginUrl = payload.loginUrl ?? "https://www.zhihu.com/signin";
     setMessage(
-      `${browserMode} 登录窗口已打开。请在同一个 Profile 里完成知乎登录，登录成功后先手动关闭这个窗口，等 2 到 3 秒再点击“登录成功，继续下一步”。为避免刚登录的会话丢失，系统不会再强制关闭浏览器。如果打开的是空白页，可以直接在地址栏粘贴：${loginUrl}`
+      payload.message ??
+        `${browserMode} 登录窗口已打开。请在同一个 Profile 里完成知乎登录，登录成功后先手动关闭这个窗口，等 2 到 3 秒再点击“登录成功，继续下一步”。为避免刚登录的会话丢失，系统不会再强制关闭浏览器。如果打开的是空白页，可以直接在地址栏粘贴：${loginUrl}`
     );
   }
 
@@ -152,10 +164,19 @@ export function AccountPanel({ account, writerPromptSet }: AccountPanelProps) {
       return;
     }
 
+    if (payload.resumedByWorker === false) {
+      setMessage(
+        payload.message ??
+          "系统已记录你的人工处理结果。为避免关闭原页面，任务会在下一轮 worker 继续推进；如果当前没有常驻 worker，可以手动触发一次执行队列。"
+      );
+      return;
+    }
+
     setMessage(
-      publishJobId
+      payload.message ??
+        (publishJobId
         ? `任务 #${publishJobId} 已恢复，系统会从登录校验或安全锚点继续执行。`
-        : "账号状态已恢复，系统会继续推进阻塞中的任务。"
+        : "账号状态已恢复，系统会继续推进阻塞中的任务。")
     );
   }
 

@@ -108,11 +108,16 @@ export class LlmService {
       });
       return responseText;
     } catch (error) {
+      const diagnostics = extractErrorDiagnostics(error);
       logDebugTiming("llm.runPrompt", "failed", {
         promptSetName,
         timeoutMs,
         elapsedMs: getElapsedMs(startedAt),
-        error: error instanceof Error ? error.message : String(error)
+        error: diagnostics.message,
+        errorCause: diagnostics.causeMessage,
+        errorCode: diagnostics.code,
+        errorSyscall: diagnostics.syscall,
+        errorHostname: diagnostics.hostname
       });
       throw error;
     }
@@ -178,10 +183,15 @@ export class LlmService {
       });
       return safeParseJson(responseText, fallback);
     } catch (error) {
+      const diagnostics = extractErrorDiagnostics(error);
       logDebugTiming("llm.runJsonWithSystemPrompt", "failed", {
         timeoutMs,
         elapsedMs: getElapsedMs(startedAt),
-        error: error instanceof Error ? error.message : String(error)
+        error: diagnostics.message,
+        errorCause: diagnostics.causeMessage,
+        errorCode: diagnostics.code,
+        errorSyscall: diagnostics.syscall,
+        errorHostname: diagnostics.hostname
       });
       throw error;
     }
@@ -194,4 +204,31 @@ function getPromptTimeoutMs(promptSetName: PromptSetName) {
   }
 
   return DEFAULT_LLM_REQUEST_TIMEOUT_MS;
+}
+
+function extractErrorDiagnostics(error: unknown) {
+  const obj = error && typeof error === "object" ? (error as Record<string, unknown>) : null;
+  const cause = obj?.cause && typeof obj.cause === "object" ? (obj.cause as Record<string, unknown>) : null;
+
+  return {
+    message: error instanceof Error ? error.message : String(error),
+    causeMessage: typeof cause?.message === "string" ? cause.message : null,
+    code: pickString(obj, cause, "code"),
+    syscall: pickString(obj, cause, "syscall"),
+    hostname: pickString(obj, cause, "hostname")
+  };
+}
+
+function pickString(primary: Record<string, unknown> | null, secondary: Record<string, unknown> | null, key: string) {
+  const first = primary?.[key];
+  if (typeof first === "string" && first.trim()) {
+    return first.trim();
+  }
+
+  const second = secondary?.[key];
+  if (typeof second === "string" && second.trim()) {
+    return second.trim();
+  }
+
+  return null;
 }

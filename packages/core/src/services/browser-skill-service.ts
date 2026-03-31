@@ -92,6 +92,10 @@ export class BrowserSkillService {
     await this.runtime.closeSession(sessionKey);
   }
 
+  hasSession(sessionKey: string) {
+    return this.runtime.hasSession(sessionKey);
+  }
+
   async restartSession(traceContext: RuntimeTraceContext) {
     await this.runtime.restartSession(traceContext);
   }

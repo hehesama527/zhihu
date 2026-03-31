@@ -1,4 +1,4 @@
-﻿import type { FailureType, PromptSnapshotMap, PublishStepAction, PublishStepPlan } from "@zhihu-mvp/shared";
+import type { FailureType, PromptSnapshotMap, PublishStepAction, PublishStepPlan } from "@zhihu-mvp/shared";
 import { normalizeZhihuQuestionUrl } from "../utils/zhihu-url.js";
 import { LlmService } from "./llm-service.js";
 import { BrowserSkillService, type PageSnapshot } from "./browser-skill-service.js";
@@ -9,6 +9,30 @@ const EDITOR_SELECTORS = [
   ".public-DraftEditor-content",
   ".DraftEditor-root div[contenteditable='true']",
   "[contenteditable='true']"
+];
+
+const SUBMIT_TEXT_CANDIDATES = ["发布回答", "提交回答", "更新回答", "保存修改", "发布修改"];
+const DIRECT_SUBMIT_SELECTORS = [
+  ".AnswerForm button:has-text('发布回答')",
+  ".AnswerForm button:has-text('提交回答')",
+  ".AnswerForm button:has-text('更新回答')",
+  ".AnswerForm button:has-text('保存修改')",
+  ".AnswerForm button:has-text('发布修改')",
+  ".AnswerForm [role='button']:has-text('发布回答')",
+  ".AnswerForm [role='button']:has-text('提交回答')",
+  ".AnswerForm [role='button']:has-text('更新回答')",
+  ".AnswerForm [role='button']:has-text('保存修改')",
+  ".AnswerForm [role='button']:has-text('发布修改')",
+  "[class*='AnswerForm'] button:has-text('发布回答')",
+  "[class*='AnswerForm'] button:has-text('提交回答')",
+  "[class*='AnswerForm'] button:has-text('更新回答')",
+  "[class*='AnswerForm'] button:has-text('保存修改')",
+  "[class*='AnswerForm'] button:has-text('发布修改')",
+  "[class*='AnswerForm'] [role='button']:has-text('发布回答')",
+  "[class*='AnswerForm'] [role='button']:has-text('提交回答')",
+  "[class*='AnswerForm'] [role='button']:has-text('更新回答')",
+  "[class*='AnswerForm'] [role='button']:has-text('保存修改')",
+  "[class*='AnswerForm'] [role='button']:has-text('发布修改')"
 ];
 
 type PublishResultReview = {
@@ -222,9 +246,13 @@ export class PublishService {
         }
       );
 
-      rawEditorSnapshot = await this.browserSkillService.snapshot({
-        ...traceBase,
-        stage: "publishing"
+      rawEditorSnapshot = await this.ensureEditorSurface({
+        traceBase,
+        snapshot: await this.browserSkillService.snapshot({
+          ...traceBase,
+          stage: "publishing"
+        }),
+        promptSnapshot: input.promptSnapshot
       });
     } else if (openPlan.nextAction !== "FOCUS_EDITOR" && openPlan.nextAction !== "PASTE_CONTENT") {
       throw new PublishFlowError("editor_not_ready", openPlan.reason || "当前页面还没有进入可编辑状态。", openPlanState.snapshot.url, {
@@ -253,7 +281,11 @@ export class PublishService {
       const editorPlanState = await this.resolvePlanForStage({
         traceBase,
         stage: "publishing",
-        snapshot: rawEditorSnapshot,
+        snapshot: await this.ensureEditorSurface({
+          traceBase,
+          snapshot: rawEditorSnapshot,
+          promptSnapshot: input.promptSnapshot
+        }),
         promptSnapshot: input.promptSnapshot,
         expectedActions: ["FOCUS_EDITOR", "PASTE_CONTENT"]
       });
@@ -305,9 +337,13 @@ export class PublishService {
       }
     );
 
-    const rawSubmitSnapshot = await this.browserSkillService.snapshot({
-      ...traceBase,
-      stage: "publishing"
+    const rawSubmitSnapshot = await this.ensureSubmitSurface({
+      traceBase,
+      snapshot: await this.browserSkillService.snapshot({
+        ...traceBase,
+        stage: "publishing"
+      }),
+      promptSnapshot: input.promptSnapshot
     });
     const submitPlanState = await this.resolvePlanForStage({
       traceBase,
@@ -319,6 +355,23 @@ export class PublishService {
     const submitPlan = submitPlanState.plan;
 
     if (submitPlan.nextAction !== "CLICK_SUBMIT") {
+      const clickedDirectly = hasEditorSemantic(submitPlanState.snapshot)
+        ? await this.tryDirectSubmitClick(traceBase)
+        : false;
+      if (clickedDirectly) {
+        await this.browserSkillService.wait(
+          {
+            ...traceBase,
+            stage: "publish_verify"
+          },
+          {
+            ms: 3500
+          }
+        );
+
+        return this.collectVerifiedPublishResult(traceBase, input.publishJobId, input.content, input.promptSnapshot);
+      }
+
       throw new PublishFlowError("submit_not_ready", submitPlan.reason || "当前页面还没有出现可提交的发布按钮。", submitPlanState.snapshot.url, {
         snapshot: submitPlanState.snapshot,
         publishPlan: submitPlan,
@@ -329,13 +382,47 @@ export class PublishService {
       });
     }
 
-    await this.clickPlanOrThrow({
-      traceBase,
-      snapshot: submitPlanState.snapshot,
-      plan: submitPlan,
-      failureType: "submit_not_ready",
-      errorMessage: "没有找到“发布回答”按钮。"
-    });
+    const preferredSubmitTexts = sanitizeSubmitTargets(submitPlan.targetTexts);
+    const submitTargetTexts = preferredSubmitTexts.length ? preferredSubmitTexts : ["发布回答", "提交回答", "发布"];
+    try {
+      await this.browserSkillService.click(
+        {
+          ...traceBase,
+          stage: "publishing"
+        },
+        {
+          names: submitTargetTexts,
+          roles: ["button", "link"],
+          selectors: submitPlan.targetSelectors
+        }
+      );
+    } catch {
+      const clickedDirectly = hasEditorSemantic(submitPlanState.snapshot)
+        ? await this.tryDirectSubmitClick(traceBase)
+        : false;
+      if (clickedDirectly) {
+        await this.browserSkillService.wait(
+          {
+            ...traceBase,
+            stage: "publish_verify"
+          },
+          {
+            ms: 3500
+          }
+        );
+
+        return this.collectVerifiedPublishResult(traceBase, input.publishJobId, input.content, input.promptSnapshot);
+      }
+
+      throw new PublishFlowError("submit_not_ready", "没有找到“发布回答”按钮。", submitPlanState.snapshot.url, {
+        snapshot: submitPlanState.snapshot,
+        publishPlan: submitPlan,
+        resumeAnchor: {
+          stage: "publishing",
+          currentUrl: submitPlanState.snapshot.url
+        }
+      });
+    }
 
     await this.browserSkillService.wait(
       {
@@ -347,6 +434,22 @@ export class PublishService {
       }
     );
 
+    return this.collectVerifiedPublishResult(traceBase, input.publishJobId, input.content, input.promptSnapshot);
+  }
+
+  private async collectVerifiedPublishResult(
+    traceBase: {
+      sessionKey: string;
+      profileDir: string;
+      publishJobId: number;
+      publishAttemptId: number | null;
+      traceGroupId: string;
+      agentName: "publish_agent";
+    },
+    publishJobId: number,
+    content: string,
+    promptSnapshot?: PromptSnapshotMap | null
+  ) {
     const finalUrlResult = await this.browserSkillService.getUrl({
       ...traceBase,
       stage: "publish_verify"
@@ -361,15 +464,15 @@ export class PublishService {
         stage: "publish_verify"
       },
       {
-        label: `publish-job-${input.publishJobId}`
+        label: `publish-job-${publishJobId}`
       }
     );
 
     const reviewedResult = await this.reviewPublishResult(
       verifySnapshot,
       finalUrlResult.url,
-      input.content,
-      input.promptSnapshot
+      content,
+      promptSnapshot
     );
 
     if (reviewedResult.decision === "CONTENT_RISK") {
@@ -405,6 +508,10 @@ export class PublishService {
 
   async closeSession(sessionKey: string) {
     await this.browserSkillService.closeSession(sessionKey);
+  }
+
+  hasOpenSession(sessionKey: string) {
+    return this.browserSkillService.hasSession(sessionKey);
   }
 
   async restartSession(input: { sessionKey: string; profileDir: string; traceGroupId?: string }) {
@@ -500,7 +607,7 @@ export class PublishService {
     promptSnapshot?: PromptSnapshotMap | null;
     screenshotLabel: string;
   }) {
-    const currentUrl =
+    let currentUrl =
       input.currentUrl ??
       (
         await this.browserSkillService.getUrl({
@@ -509,12 +616,41 @@ export class PublishService {
         })
       ).url;
 
-    const snapshot =
+    let snapshot =
       input.snapshot ??
       (await this.browserSkillService.snapshot({
         ...input.traceBase,
         stage: input.stage
       }));
+
+    const myAnswerUrl = pickMyAnswerDetailUrl(snapshot, currentUrl);
+    if (myAnswerUrl && myAnswerUrl !== currentUrl) {
+      await this.browserSkillService.open(
+        {
+          ...input.traceBase,
+          stage: "publish_verify"
+        },
+        {
+          url: myAnswerUrl
+        }
+      );
+
+      await this.browserSkillService.wait(
+        {
+          ...input.traceBase,
+          stage: "publish_verify"
+        },
+        {
+          ms: 1200
+        }
+      );
+
+      currentUrl = myAnswerUrl;
+      snapshot = await this.browserSkillService.snapshot({
+        ...input.traceBase,
+        stage: "publish_verify"
+      });
+    }
 
     const screenshot = await this.browserSkillService.screenshot(
       {
@@ -552,6 +688,7 @@ export class PublishService {
   }) {
     let snapshot = input.snapshot;
     let plan = await this.understandPublishPage(snapshot, input.promptSnapshot);
+    plan = coerceManualLoginPlan(snapshot, input.expectedActions, plan);
 
     if (plan.nextAction === "REQUEST_MANUAL_LOGIN" || input.expectedActions.includes(plan.nextAction)) {
       return { snapshot, plan };
@@ -579,6 +716,7 @@ export class PublishService {
         stage: input.stage
       });
       plan = await this.understandPublishPage(snapshot, input.promptSnapshot);
+      plan = coerceManualLoginPlan(snapshot, input.expectedActions, plan);
 
       if (plan.nextAction === "REQUEST_MANUAL_LOGIN" || input.expectedActions.includes(plan.nextAction)) {
         return { snapshot, plan };
@@ -811,6 +949,20 @@ export class PublishService {
     const comparison = compareExistingDraftToExpected(existingSnapshot, input.content);
 
     if (comparison.decision === "MATCHED") {
+      const matchedOnAnswerDetail = isAnswerDetailUrl(existingSnapshot.url) && !hasEditorSemantic(existingSnapshot);
+      if (!matchedOnAnswerDetail) {
+        const editorSnapshot = await this.prepareEditorForRepaste({
+          traceBase: input.traceBase,
+          snapshot: existingSnapshot,
+          promptSnapshot: input.promptSnapshot
+        });
+
+        return {
+          kind: "continue_editing",
+          editorSnapshot
+        };
+      }
+
       const verifiedPage = await this.captureAndReviewPageResult({
         traceBase: input.traceBase,
         stage: "publish_verify",
@@ -903,6 +1055,100 @@ export class PublishService {
     });
   }
 
+  private async ensureEditorSurface(input: {
+    traceBase: {
+      sessionKey: string;
+      profileDir: string;
+      publishJobId: number;
+      publishAttemptId: number | null;
+      traceGroupId: string;
+      agentName: "publish_agent";
+    };
+    snapshot: PageSnapshot;
+    promptSnapshot?: PromptSnapshotMap | null;
+  }) {
+    let snapshot = input.snapshot;
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (hasEditorSemantic(snapshot) || hasSubmitSemantic(snapshot)) {
+        return snapshot;
+      }
+
+      const writeAnswerPlan = buildFallbackPublishPlan(snapshot, ["CLICK_WRITE_ANSWER"]);
+      if (writeAnswerPlan?.nextAction === "CLICK_WRITE_ANSWER") {
+        await this.clickPlanOrThrow({
+          traceBase: input.traceBase,
+          snapshot,
+          plan: writeAnswerPlan,
+          failureType: "editor_not_ready",
+          errorMessage: "没有找到“写回答”入口。"
+        });
+      }
+
+      await this.browserSkillService.wait(
+        {
+          ...input.traceBase,
+          stage: "publishing"
+        },
+        {
+          ms: attempt === 0 ? 1800 : 2400
+        }
+      );
+
+      snapshot = await this.browserSkillService.snapshot({
+        ...input.traceBase,
+        stage: "publishing"
+      });
+    }
+
+    return snapshot;
+  }
+
+  private async ensureSubmitSurface(input: {
+    traceBase: {
+      sessionKey: string;
+      profileDir: string;
+      publishJobId: number;
+      publishAttemptId: number | null;
+      traceGroupId: string;
+      agentName: "publish_agent";
+    };
+    snapshot: PageSnapshot;
+    promptSnapshot?: PromptSnapshotMap | null;
+  }) {
+    let snapshot = input.snapshot;
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (hasSubmitSemantic(snapshot) && hasEditorSemantic(snapshot)) {
+        return snapshot;
+      }
+
+      if (!hasEditorSemantic(snapshot)) {
+        snapshot = await this.ensureEditorSurface(input);
+        if (hasSubmitSemantic(snapshot) && hasEditorSemantic(snapshot)) {
+          return snapshot;
+        }
+      }
+
+      await this.browserSkillService.wait(
+        {
+          ...input.traceBase,
+          stage: "publishing"
+        },
+        {
+          ms: 1200
+        }
+      );
+
+      snapshot = await this.browserSkillService.snapshot({
+        ...input.traceBase,
+        stage: "publishing"
+      });
+    }
+
+    return snapshot;
+  }
+
   private async focusEditorOrThrow(
     traceBase: {
       sessionKey: string;
@@ -915,26 +1161,43 @@ export class PublishService {
     snapshot: PageSnapshot,
     plan: PublishStepPlan
   ) {
-    try {
-      await this.browserSkillService.focus(
-        {
-          ...traceBase,
-          stage: "publishing"
-        },
-        {
-          selectors: mergeSelectors(plan.targetSelectors, EDITOR_SELECTORS)
+    const selectors = mergeSelectors(plan.targetSelectors, EDITOR_SELECTORS);
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        await this.browserSkillService.focus(
+          {
+            ...traceBase,
+            stage: "publishing"
+          },
+          {
+            selectors
+          }
+        );
+        return;
+      } catch {
+        if (attempt === 0) {
+          await this.browserSkillService.wait(
+            {
+              ...traceBase,
+              stage: "publishing"
+            },
+            {
+              ms: 1200
+            }
+          );
         }
-      );
-    } catch {
-      throw new PublishFlowError("editor_not_ready", "没有找到可编辑的输入区域。", snapshot.url, {
-        snapshot,
-        publishPlan: plan,
-        resumeAnchor: {
-          stage: "publishing",
-          currentUrl: snapshot.url
-        }
-      });
+      }
     }
+
+    throw new PublishFlowError("editor_not_ready", "没有找到可编辑的输入区域。", snapshot.url, {
+      snapshot,
+      publishPlan: plan,
+      resumeAnchor: {
+        stage: "publishing",
+        currentUrl: snapshot.url
+      }
+    });
   }
 
   private async clickPlanOrThrow(input: {
@@ -972,6 +1235,32 @@ export class PublishService {
           currentUrl: input.snapshot.url
         }
       });
+    }
+  }
+
+  private async tryDirectSubmitClick(traceBase: {
+    sessionKey: string;
+    profileDir: string;
+    publishJobId: number;
+    publishAttemptId: number | null;
+    traceGroupId: string;
+    agentName: "publish_agent";
+  }) {
+    try {
+      await this.browserSkillService.click(
+        {
+          ...traceBase,
+          stage: "publishing"
+        },
+        {
+          names: SUBMIT_TEXT_CANDIDATES,
+          roles: ["button", "link"],
+          selectors: DIRECT_SUBMIT_SELECTORS
+        }
+      );
+      return true;
+    } catch {
+      return false;
     }
   }
 }
@@ -1046,6 +1335,41 @@ function buildFallbackPublishPlan(snapshot: PageSnapshot, expectedActions: Publi
   return null;
 }
 
+function coerceManualLoginPlan(
+  snapshot: PageSnapshot,
+  expectedActions: PublishStepAction[],
+  plan: PublishStepPlan
+): PublishStepPlan {
+  if (plan.nextAction !== "REQUEST_MANUAL_LOGIN") {
+    return plan;
+  }
+
+  if (hasExplicitManualLoginSignal(snapshot)) {
+    return plan;
+  }
+
+  const fallbackPlan = buildFallbackPublishPlan(snapshot, expectedActions);
+  if (fallbackPlan) {
+    return {
+      ...fallbackPlan,
+      reason: `${fallbackPlan.reason} 已忽略一次缺少明确风控证据的人工登录判断。`
+    };
+  }
+
+  if (hasLoggedInSurfaceSemantic(snapshot)) {
+    return {
+      nextAction: "WAIT",
+      targetTexts: [],
+      targetRoles: [],
+      targetSelectors: [],
+      confidence: "low",
+      reason: "页面仍显示已登录内容，但没有明确挑战页证据，先不进入人工登录，等待并重试页面理解。"
+    };
+  }
+
+  return plan;
+}
+
 function getExistingAnswerSignal(plan: PublishStepPlan): "view" | "edit" | null {
   const combined = [...plan.targetTexts, ...plan.targetSelectors].join(" ");
   if (combined.includes("查看我的回答") || combined.includes("我的回答")) {
@@ -1105,7 +1429,50 @@ function mergeMatchedSignals(primary: string[], secondary: string[]) {
 
 function hasPublishedAnswerSemantic(snapshot: PageSnapshot) {
   const combined = [snapshot.title, ...snapshot.visibleTexts, ...snapshot.buttons, ...snapshot.links.map((item) => item.text)].join(" ");
-  return ["查看我的回答", "我的回答", "编辑回答", "回答已提交", "已发布"].some((text) => combined.includes(text));
+  return ["回答已提交", "已发布", "发布成功"].some((text) => combined.includes(text));
+}
+
+function hasExplicitManualLoginSignal(snapshot: PageSnapshot) {
+  const combined = [snapshot.url, snapshot.title, ...snapshot.visibleTexts, ...snapshot.buttons, ...snapshot.links.map((item) => item.text)]
+    .join(" ")
+    .toLowerCase();
+
+  return (
+    /zhihu\.com\/signin|zhihu\.com\/login|zhihu\.com\/account\/unhuman|captcha|challenge/i.test(snapshot.url) ||
+    [
+      "登录/注册",
+      "注册/登录",
+      "请先登录",
+      "验证码登录",
+      "手机号登录",
+      "密码登录",
+      "获取短信验证码",
+      "安全验证",
+      "异常验证",
+      "验证身份",
+      "请完成验证",
+      "滑块验证",
+      "拖动滑块",
+      "人机验证",
+      "访问受限",
+      "风险验证",
+      "账号存在异常",
+      "反爬"
+    ].some((text) => combined.includes(text.toLowerCase()))
+  );
+}
+
+function hasLoggedInSurfaceSemantic(snapshot: PageSnapshot) {
+  const combined = [snapshot.title, ...snapshot.visibleTexts, ...snapshot.buttons, ...snapshot.links.map((item) => item.text)].join(" ");
+
+  return (
+    /zhihu\.com\/settings\//i.test(snapshot.url) ||
+    /zhihu\.com\/creator/i.test(snapshot.url) ||
+    /zhihu\.com\/notifications/i.test(snapshot.url) ||
+    ["账号设置", "登录方式", "绑定手机", "绑定邮箱", "创作中心", "发想法", "私信", "写回答", "查看我的回答", "编辑回答"].some(
+      (text) => combined.includes(text)
+    )
+  );
 }
 
 function hasEditorSemantic(snapshot: PageSnapshot) {
@@ -1121,7 +1488,7 @@ function hasEditorSemantic(snapshot: PageSnapshot) {
 
 function hasSubmitSemantic(snapshot: PageSnapshot) {
   const combined = [snapshot.title, ...snapshot.visibleTexts, ...snapshot.buttons, ...snapshot.links.map((item) => item.text)].join(" ");
-  return ["发布回答", "提交回答"].some((text) => combined.includes(text));
+  return SUBMIT_TEXT_CANDIDATES.some((text) => combined.includes(text));
 }
 
 function isAnswerDetailUrl(url: string) {
@@ -1139,8 +1506,31 @@ function findFirstMatchingText(values: string[], candidates: string[]) {
   return null;
 }
 
+function pickMyAnswerDetailUrl(snapshot: PageSnapshot, currentUrl: string) {
+  const answerLinks = snapshot.links.filter(
+    (item) => /\/question\/\d+\/answer\/\d+/i.test(item.href) && /(我的回答|查看我的回答|编辑回答)/.test(item.text)
+  );
+  if (answerLinks.length === 0) {
+    return null;
+  }
+
+  try {
+    return new URL(answerLinks[0].href, currentUrl).toString();
+  } catch {
+    return null;
+  }
+}
+
 function normalizeComparableText(value: string) {
   return value.replace(/\s+/g, "").replace(/[.,，。！？!?；;:'\"“”‘’()（）[\]【】《》<>-]/g, "").trim();
+}
+
+function sanitizeSubmitTargets(targetTexts: string[]) {
+  return targetTexts
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .filter((item) => !/发布于|发表于|^\d{4}-\d{2}-\d{2}/.test(item))
+    .filter((item) => /发布回答|提交回答|发布/.test(item));
 }
 
 function compareExistingDraftToExpected(snapshot: PageSnapshot, expectedContent: string): ExistingDraftComparison {

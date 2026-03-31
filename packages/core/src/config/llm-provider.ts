@@ -73,7 +73,7 @@ function readCodexAuth(filePath: string): CodexAuthConfig {
 function readScopedEnv(scope: LlmConfigScope, name: string) {
   const candidates =
     scope === "ops"
-      ? [`OPS_AGENT_${name}`, `LLM_${name}`]
+      ? [`OPS_AGENT_${name}`, `ZHIHU_AGENT_${name}`, `LLM_${name}`]
       : [`ZHIHU_AGENT_${name}`, `LLM_${name}`];
 
   for (const key of candidates) {

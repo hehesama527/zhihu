@@ -34,6 +34,20 @@ type SessionValidationSnapshot = {
   links?: Array<{ text: string; href: string }>;
 };
 
+type EnsureLoggedInInput = {
+  sessionKey: string;
+  profileDir: string;
+  traceGroupId: string;
+  stage?: ToolTraceStage;
+  url?: string;
+  fallbackUrls?: string[];
+  publishJobId?: number | null;
+  publishAttemptId?: number | null;
+  promptSnapshot?: PromptSnapshotMap | null;
+  expectedZhihuUserName?: string | null;
+  accountName?: string | null;
+};
+
 export class SessionStateError extends Error {
   constructor(
     public readonly sessionState: "login_required" | "session_expired" | "account_identity_mismatch",
@@ -104,20 +118,21 @@ export class SessionService {
   }) {
     const sessionKey = `recovery-check-${input.accountId}`;
     const traceGroupId = `recovery-check-${input.accountId}-${Date.now()}`;
+    const recoveryInput: EnsureLoggedInInput = {
+      sessionKey,
+      profileDir: input.profileDir,
+      traceGroupId,
+      stage: "login_checking",
+      url: input.checkUrl ?? `${getAppConfig().zhihuBaseUrl}/settings/account`,
+      fallbackUrls: [`${getAppConfig().zhihuBaseUrl}/`, `${getAppConfig().zhihuBaseUrl}/notifications`],
+      publishJobId: input.publishJobId ?? null,
+      promptSnapshot: input.promptSnapshot,
+      expectedZhihuUserName: input.expectedZhihuUserName ?? null,
+      accountName: input.accountName ?? null
+    };
 
     try {
-      const recovery = await this.ensureLoggedIn({
-        sessionKey,
-        profileDir: input.profileDir,
-        traceGroupId,
-        stage: "login_checking",
-        url: input.checkUrl ?? `${getAppConfig().zhihuBaseUrl}/settings/account`,
-        fallbackUrls: [`${getAppConfig().zhihuBaseUrl}/`, `${getAppConfig().zhihuBaseUrl}/notifications`],
-        publishJobId: input.publishJobId ?? null,
-        promptSnapshot: input.promptSnapshot,
-        expectedZhihuUserName: input.expectedZhihuUserName ?? null,
-        accountName: input.accountName ?? null
-      });
+      const recovery = await this.ensureRecoveredSessionWithRetry(input.accountId, recoveryInput);
       await removeManualLoginLock(input.accountId);
       return recovery;
     } finally {
@@ -125,19 +140,7 @@ export class SessionService {
     }
   }
 
-  async ensureLoggedIn(input: {
-    sessionKey: string;
-    profileDir: string;
-    traceGroupId: string;
-    stage?: ToolTraceStage;
-    url?: string;
-    fallbackUrls?: string[];
-    publishJobId?: number | null;
-    publishAttemptId?: number | null;
-    promptSnapshot?: PromptSnapshotMap | null;
-    expectedZhihuUserName?: string | null;
-    accountName?: string | null;
-  }) {
+  async ensureLoggedIn(input: EnsureLoggedInInput) {
     const traceContext = {
       sessionKey: input.sessionKey,
       profileDir: input.profileDir,
@@ -193,6 +196,20 @@ export class SessionService {
           }
         : null
     };
+  }
+
+  private async ensureRecoveredSessionWithRetry(accountId: number, input: EnsureLoggedInInput) {
+    try {
+      return await this.ensureLoggedIn(input);
+    } catch (error) {
+      if (!isBrowserProfileConflictError(error)) {
+        throw error;
+      }
+
+      await this.closeManualLoginBrowser(accountId);
+      await wait(1_500);
+      return this.ensureLoggedIn(input);
+    }
   }
 
   async detectSessionState(
@@ -515,20 +532,62 @@ function buildIdentityMismatchMessage(
 }
 
 function detectSessionStateHeuristically(input: SessionSnapshotInput): Required<SessionDetectionResult> | null {
-  const combinedText = [input.url, input.title, ...input.visibleTexts, ...(input.buttons ?? [])].join(" ");
-  const loginHints = ["登录", "注册", "验证码登录", "手机号登录", "密码登录", "立即登录", "获取短信验证码", "登录/注册"];
-  const challengeHints = ["安全验证", "异常验证", "验证身份", "滑块", "验证码", "短信验证", "挑战", "风控"];
-  const activeHints = ["账号设置", "绑定手机", "绑定邮箱", "写回答", "查看我的回答", "编辑回答", "创作中心", "发想法", "私信"];
+  const combinedText = [
+    input.url,
+    input.title,
+    ...input.visibleTexts,
+    ...(input.buttons ?? []),
+    ...(input.links ?? []).flatMap((link) => [link.text, link.href])
+  ]
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const challengeHints = [
+    "安全验证",
+    "异常验证",
+    "验证身份",
+    "请完成验证",
+    "滑块验证",
+    "拖动滑块",
+    "人机验证",
+    "访问受限",
+    "风险验证",
+    "账号存在异常"
+  ];
+  const loginHints = [
+    "登录/注册",
+    "注册/登录",
+    "立即登录",
+    "请先登录",
+    "请登录后继续",
+    "登录后继续",
+    "登录后可继续",
+    "登录知乎",
+    "验证码登录",
+    "手机号登录",
+    "密码登录",
+    "获取短信验证码"
+  ];
+  const activeHints = [
+    "账号设置",
+    "登录方式",
+    "绑定手机",
+    "绑定邮箱",
+    "写回答",
+    "查看我的回答",
+    "编辑回答",
+    "创作中心",
+    "发想法",
+    "私信"
+  ];
+  const isChallengeUrl = /zhihu\.com\/account\/unhuman|captcha|challenge/i.test(input.url);
+  const isLoginUrl = /zhihu\.com\/signin|zhihu\.com\/login/i.test(input.url);
+  const isKnownLoggedInSurface =
+    /zhihu\.com\/settings\//i.test(input.url) ||
+    /zhihu\.com\/creator/i.test(input.url) ||
+    /zhihu\.com\/notifications/i.test(input.url);
 
-  if (/signin|login/i.test(input.url) || loginHints.some((text) => combinedText.includes(text))) {
-    return {
-      session_state: "login_required",
-      reason: "当前账号尚未登录知乎，请先完成登录后再确认恢复。",
-      confidence: "high"
-    };
-  }
-
-  if (challengeHints.some((text) => combinedText.includes(text))) {
+  if (isChallengeUrl || challengeHints.some((text) => combinedText.includes(text))) {
     return {
       session_state: "session_expired",
       reason: "页面进入验证或风控状态，请先人工完成验证后再继续。",
@@ -536,11 +595,7 @@ function detectSessionStateHeuristically(input: SessionSnapshotInput): Required<
     };
   }
 
-  if (
-    /zhihu\.com\/settings\//i.test(input.url) ||
-    /zhihu\.com\/creator/i.test(input.url) ||
-    activeHints.some((text) => combinedText.includes(text))
-  ) {
+  if (isKnownLoggedInSurface || activeHints.some((text) => combinedText.includes(text))) {
     return {
       session_state: "active",
       reason: "页面已显示知乎账号的已登录内容，可继续执行。",
@@ -548,5 +603,28 @@ function detectSessionStateHeuristically(input: SessionSnapshotInput): Required<
     };
   }
 
+  if (isLoginUrl || loginHints.some((text) => combinedText.includes(text))) {
+    return {
+      session_state: "login_required",
+      reason: "当前账号尚未登录知乎，请先完成登录后再确认恢复。",
+      confidence: "high"
+    };
+  }
+
   return null;
+}
+
+function isBrowserProfileConflictError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const normalized = message.toLowerCase();
+
+  return (
+    normalized.includes("profile") &&
+      (normalized.includes("occupied") || normalized.includes("占用")) ||
+    normalized.includes("launchpersistentcontext") &&
+      (normalized.includes("target page, context or browser has been closed") ||
+        normalized.includes("user-data-dir") ||
+        normalized.includes("user data directory") ||
+        normalized.includes("browser logs"))
+  );
 }

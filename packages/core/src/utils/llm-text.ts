@@ -15,6 +15,8 @@ export type LlmTextRequestOptions = {
 
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 180_000;
 const STREAM_FALLBACK_HINT = /(stream|sse|event-stream|unsupported|not support|invalid parameter|unknown parameter)/i;
+const MAX_RETRIES = 3;
+const RETRYABLE_HTTP_STATUS = new Set([408, 409, 425, 429, 500, 502, 503, 504]);
 
 export async function createLlmTextResponse(
   client: OpenAI,
@@ -22,12 +24,35 @@ export async function createLlmTextResponse(
   messages: LlmTextMessage[],
   options?: LlmTextRequestOptions
 ): Promise<unknown> {
-  const initialResponseTimeoutMs = normalizeTimeout(options?.initialResponseTimeoutMs, 120_000);
-  const streamIdleTimeoutMs = normalizeTimeout(options?.streamIdleTimeoutMs, DEFAULT_STREAM_IDLE_TIMEOUT_MS);
+  return withRetry("createLlmTextResponse", async () => {
+    const initialResponseTimeoutMs = normalizeTimeout(options?.initialResponseTimeoutMs, 120_000);
+    const streamIdleTimeoutMs = normalizeTimeout(options?.streamIdleTimeoutMs, DEFAULT_STREAM_IDLE_TIMEOUT_MS);
 
-  if (runtime.wireApi === "chat_completions") {
+    if (runtime.wireApi === "chat_completions") {
+      try {
+        return await createStreamingChatCompletionText(client, runtime, messages, {
+          initialResponseTimeoutMs,
+          streamIdleTimeoutMs
+        });
+      } catch (error) {
+        if (!shouldFallbackToNonStreaming(error)) {
+          throw error;
+        }
+
+        return client.chat.completions.create(
+          {
+            model: runtime.model,
+            messages
+          },
+          {
+            timeout: runtime.requestTimeoutMs
+          }
+        );
+      }
+    }
+
     try {
-      return await createStreamingChatCompletionText(client, runtime, messages, {
+      return await createStreamingResponsesText(client, runtime, messages, {
         initialResponseTimeoutMs,
         streamIdleTimeoutMs
       });
@@ -36,39 +61,18 @@ export async function createLlmTextResponse(
         throw error;
       }
 
-      return client.chat.completions.create(
+      return client.responses.create(
         {
           model: runtime.model,
-          messages
+          reasoning: { effort: runtime.reasoningEffort },
+          input: messages
         },
         {
           timeout: runtime.requestTimeoutMs
         }
       );
     }
-  }
-
-  try {
-    return await createStreamingResponsesText(client, runtime, messages, {
-      initialResponseTimeoutMs,
-      streamIdleTimeoutMs
-    });
-  } catch (error) {
-    if (!shouldFallbackToNonStreaming(error)) {
-      throw error;
-    }
-
-    return client.responses.create(
-      {
-        model: runtime.model,
-        reasoning: { effort: runtime.reasoningEffort },
-        input: messages
-      },
-      {
-        timeout: runtime.requestTimeoutMs
-      }
-    );
-  }
+  });
 }
 
 async function createStreamingChatCompletionText(
@@ -254,4 +258,146 @@ function normalizeTimeout(value: number | undefined, fallback: number) {
   }
 
   return fallback;
+}
+
+async function withRetry<T>(scope: string, request: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
+    try {
+      return await request();
+    } catch (error) {
+      const diagnostics = extractErrorDiagnostics(error);
+      const shouldRetry = attempt < MAX_RETRIES && isRetryableError(diagnostics);
+
+      console.error("[llm] request failed", {
+        scope,
+        attempt: attempt + 1,
+        maxAttempts: MAX_RETRIES + 1,
+        shouldRetry,
+        category: classifyFailure(diagnostics),
+        ...diagnostics
+      });
+
+      if (!shouldRetry) {
+        throw toDiagnosticError(error, diagnostics);
+      }
+
+      await sleep(computeBackoffMs(attempt));
+    }
+  }
+
+  throw new Error("LLM request failed after retries.");
+}
+
+function isRetryableError(input: ReturnType<typeof extractErrorDiagnostics>) {
+  if (input.status && RETRYABLE_HTTP_STATUS.has(input.status)) {
+    return true;
+  }
+
+  if (input.code && ["ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "EHOSTUNREACH", "ENETUNREACH", "EAI_AGAIN"].includes(input.code)) {
+    return true;
+  }
+
+  const text = `${input.message} ${input.causeMessage}`.toLowerCase();
+  return (
+    text.includes("connection error") ||
+    text.includes("fetch failed") ||
+    text.includes("timeout") ||
+    text.includes("network") ||
+    text.includes("temporarily unavailable")
+  );
+}
+
+function computeBackoffMs(attempt: number) {
+  const base = 1000 * Math.pow(2, attempt);
+  const jitter = Math.floor(Math.random() * 400);
+  return base + jitter;
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function toDiagnosticError(error: unknown, diagnostics: ReturnType<typeof extractErrorDiagnostics>) {
+  const category = classifyFailure(diagnostics);
+  const parts = [
+    `${category}`,
+    diagnostics.code ? `code=${diagnostics.code}` : null,
+    diagnostics.status ? `status=${diagnostics.status}` : null,
+    diagnostics.syscall ? `syscall=${diagnostics.syscall}` : null,
+    diagnostics.hostname ? `hostname=${diagnostics.hostname}` : null,
+    diagnostics.message ? `message=${diagnostics.message}` : null,
+    diagnostics.causeMessage ? `cause=${diagnostics.causeMessage}` : null
+  ].filter(Boolean);
+
+  const wrapped = new Error(`LLM request failed: ${parts.join(" | ")}`);
+  (wrapped as { cause?: unknown }).cause = error;
+  return wrapped;
+}
+
+function classifyFailure(input: ReturnType<typeof extractErrorDiagnostics>) {
+  const msg = `${input.message} ${input.causeMessage}`.toLowerCase();
+
+  if (input.status === 429 || msg.includes("rate limit")) {
+    return "rate_limit";
+  }
+  if (input.code === "ENOTFOUND" || input.code === "EAI_AGAIN" || msg.includes("getaddrinfo")) {
+    return "dns_error";
+  }
+  if (input.code === "ECONNREFUSED" && (input.hostname === "127.0.0.1" || input.hostname === "localhost")) {
+    return "proxy_refused";
+  }
+  if (msg.includes("certificate") || msg.includes("tls") || msg.includes("ssl")) {
+    return "tls_error";
+  }
+  if (msg.includes("timeout") || input.code === "ETIMEDOUT") {
+    return "timeout";
+  }
+  if (msg.includes("connection error") || msg.includes("fetch failed") || msg.includes("network")) {
+    return "network_error";
+  }
+
+  return "unknown_error";
+}
+
+function extractErrorDiagnostics(error: unknown) {
+  const normalized = asRecord(error);
+  const cause = asRecord(normalized?.cause);
+
+  const status = readNumber(normalized, "status");
+  const message = readString(normalized, "message") ?? String(error);
+  const code =
+    readString(normalized, "code") ??
+    readString(cause, "code") ??
+    readString(normalized, "errno") ??
+    readString(cause, "errno");
+
+  return {
+    name: readString(normalized, "name"),
+    message,
+    status,
+    code,
+    syscall: readString(normalized, "syscall") ?? readString(cause, "syscall"),
+    hostname: readString(normalized, "hostname") ?? readString(cause, "hostname"),
+    causeMessage: readString(cause, "message") ?? null
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function readString(input: Record<string, unknown> | null, key: string) {
+  const value = input?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function readNumber(input: Record<string, unknown> | null, key: string) {
+  const value = input?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }

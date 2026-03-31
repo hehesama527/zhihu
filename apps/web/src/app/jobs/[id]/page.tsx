@@ -1,5 +1,6 @@
 ﻿import Link from "next/link";
 import { notFound } from "next/navigation";
+import { RetryJobButton } from "../../../components/retry-job-button";
 import { StatusChip } from "../../../components/status-chip";
 import { getJob, getJobArtifacts, getJobAttempts, getJobSkillRuns, getJobToolTraces } from "../../../lib/api";
 
@@ -27,7 +28,10 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
           <h2>{job.title ?? `任务 #${job.id}`}</h2>
           <p className="muted">任务 #{job.id}</p>
         </div>
-        <StatusChip status={job.displayStatus} />
+        <div className="button-row">
+          {canRetryJob(job.status) ? <RetryJobButton jobId={job.id} className="button" /> : null}
+          <StatusChip status={job.displayStatus} />
+        </div>
       </section>
 
       <section className="grid grid--two">
@@ -239,6 +243,10 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
 
 function formatTime(value: string | null) {
   return value ? new Date(value).toLocaleString("zh-CN") : "暂无";
+}
+
+function canRetryJob(status: string) {
+  return status === "failed_terminal";
 }
 
 function readWriterPromptSnapshot(value: string | null) {

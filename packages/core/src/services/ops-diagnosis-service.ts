@@ -47,11 +47,11 @@ export class OpsDiagnosisService {
           {
             role: "system",
             content: [
-              "You are an internal incident diagnosis assistant.",
-              "Return strict JSON with keys: summary, rootCause, keyEvidence, suggestedAction.",
-              "Keep the answer factual and operational.",
-              "Do not propose automatic code changes.",
-              "keyEvidence must be an array of short strings."
+              "你是内部故障诊断助手。",
+              "请严格输出 JSON，键必须是：summary, rootCause, keyEvidence, suggestedAction。",
+              "全部使用简体中文自然语言，便于非研发同学快速理解。",
+              "结论要具体、可执行，不要空话，不要输出代码。",
+              "keyEvidence 必须是短句数组，最多 5 条。"
             ].join(" ")
           },
           {
@@ -91,10 +91,10 @@ function normalizeDiagnosisPayload(payload: OpsDiagnosisPayload): Omit<OpsDiagno
     : [];
 
   return {
-    summary: normalizeText(payload.summary, "Incident detected. Review the attached evidence."),
-    rootCause: normalizeText(payload.rootCause, "Root cause is not confirmed yet."),
-    keyEvidence: keyEvidence.length ? keyEvidence : ["Structured incident evidence was captured."],
-    suggestedAction: normalizeText(payload.suggestedAction, "Review the recent logs and the related job/account state.")
+    summary: normalizeText(payload.summary, "检测到异常，请结合证据继续排查。"),
+    rootCause: normalizeText(payload.rootCause, "暂未确认根因，请优先检查最近错误日志。"),
+    keyEvidence: keyEvidence.length ? keyEvidence : ["系统已采集到结构化故障证据。"],
+    suggestedAction: normalizeText(payload.suggestedAction, "请先核对近期日志、任务状态和账号状态，再执行重试。")
   };
 }
 
@@ -103,7 +103,7 @@ function buildFallbackDiagnosis(input: OpsDiagnosisInput, error: unknown): OpsDi
   const excerpt = input.rawErrorExcerpt?.trim() || "No raw error excerpt was captured.";
   const rootCause =
     inferRootCauseFromExcerpt(excerpt) ??
-    `Ops diagnosis LLM was unavailable or returned an invalid response (${failureText}).`;
+    `诊断模型暂不可用或返回格式异常（${failureText}）。`;
 
   return {
     summary: `${input.title} (${input.serviceName})`,
@@ -118,19 +118,19 @@ function inferRootCauseFromExcerpt(excerpt: string) {
   const normalized = excerpt.toLowerCase();
 
   if (normalized.includes("manual_login_required") || normalized.includes("session_expired")) {
-    return "The account session is not usable and still requires manual login recovery.";
+    return "账号会话不可用，仍需人工登录恢复后才能继续任务。";
   }
 
   if (normalized.includes("econnrefused") || normalized.includes("fetch failed")) {
-    return "A dependent network endpoint was unreachable when the incident was captured.";
+    return "采集故障时依赖的网络端点不可达。";
   }
 
   if (normalized.includes("running attempt")) {
-    return "A publish attempt likely remained in running state without a terminal update.";
+    return "发布尝试长时间停留在 running 状态，可能未正常收口。";
   }
 
   if (normalized.includes("tick failed")) {
-    return "The worker loop raised an unhandled runtime error before the tick completed.";
+    return "Worker 循环在 tick 完成前触发了未处理运行时错误。";
   }
 
   return null;
@@ -140,18 +140,18 @@ function inferSuggestedAction(excerpt: string, failureType: string | null) {
   const normalized = `${failureType ?? ""}\n${excerpt}`.toLowerCase();
 
   if (normalized.includes("manual_login")) {
-    return "Check the account status and complete manual login recovery before retrying the workflow.";
+    return "先确认账号状态并完成人工登录恢复，再重新触发流程。";
   }
 
   if (normalized.includes("econnrefused") || normalized.includes("health")) {
-    return "Verify the local service process and confirm that the API port is reachable on the same machine.";
+    return "先检查本机服务进程和端口连通性，确认 API 在本机可访问。";
   }
 
   if (normalized.includes("running")) {
-    return "Inspect the related publish attempt and close stale running records after confirming the real job state.";
+    return "核对对应发布尝试的真实状态，确认后清理陈旧 running 记录。";
   }
 
-  return "Review the recent service logs, related incident evidence, and the affected job/account records.";
+  return "优先查看近期服务日志与故障证据，并核对受影响任务/账号状态。";
 }
 
 function normalizeText(value: unknown, fallback: string) {

@@ -31,6 +31,9 @@ type Pm2ProcessEntry = {
 };
 
 export class OpsScannerService {
+  private runningScan: Promise<OpsScanSummary> | null = null;
+  private lastSummary: OpsScanSummary = buildEmptyOpsScanSummary();
+
   constructor(
     private readonly incidentService: OpsIncidentService,
     private readonly jobRepository: JobRepository,
@@ -123,8 +126,27 @@ export class OpsScannerService {
     summary.resolvedCount = await this.incidentService.resolveScanIncidents(activeFingerprints, ACTIVE_SCAN_SOURCES);
     summary.openCount = (await this.incidentService.getSummary()).openCount;
     summary.scannedAt = new Date().toISOString();
+    this.lastSummary = summary;
 
     return summary;
+  }
+
+  getLastSummary() {
+    return this.lastSummary;
+  }
+
+  isScanRunning() {
+    return this.runningScan !== null;
+  }
+
+  startScan() {
+    if (!this.runningScan) {
+      this.runningScan = this.scan().finally(() => {
+        this.runningScan = null;
+      });
+    }
+
+    return this.runningScan;
   }
 
   private async scanApiHealth() {

@@ -1,3 +1,5 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import {
@@ -159,9 +161,22 @@ app.get("/ops/incidents/:id", async (request) => {
   };
 });
 
-app.post("/ops/scan", async () => ({
-  summary: await opsScannerService.scan()
-}));
+app.post("/ops/scan", async () => {
+  const running = opsScannerService.isScanRunning();
+  const startedAt = new Date().toISOString();
+
+  void opsScannerService.startScan().catch((error) => {
+    app.log.error(error, "ops scan failed");
+  });
+
+  return {
+    ok: true,
+    running: true,
+    accepted: !running,
+    startedAt,
+    lastSummary: opsScannerService.getLastSummary()
+  };
+});
 
 app.get("/dashboard/summary", async (request) => ({
   summary: await dashboardService.getSummary(parseOptionalAccountIdFromQuery(request))
@@ -504,8 +519,21 @@ app.post("/account/manual-login/start", async (request) => {
     throw new Error("账号没有配置浏览器 Profile 目录。");
   }
 
-  const targetJob = body.publishJobId ? await jobRepository.getJobById(body.publishJobId) : null;
+  const targetJob = await resolveRecoveryTargetJob(body.accountId, body.publishJobId);
   const returnUrl = getReturnUrl(targetJob);
+  const preservedChallengePage = await shouldUsePreservedChallengePage(account.profileDir, targetJob);
+
+  if (preservedChallengePage) {
+    const message =
+      "检测到这是发布过程中触发的安全验证或反爬挑战，系统已经保留原发布页面，不会自动关闭。请直接回到刚才那个浏览器窗口完成验证，不要再新开人工登录窗口。处理完后点击“登录成功，继续下一步”即可。";
+    await accountRepository.markManualLoginRequired(body.accountId, message);
+    return {
+      browserMode: null,
+      loginUrl: returnUrl,
+      preservedExistingPage: true,
+      message
+    };
+  }
 
   await accountRepository.markManualLoginRequired(body.accountId, "需要人工确认知乎登录状态。");
   if (body.publishJobId) {
@@ -532,14 +560,46 @@ app.post("/account/recovery/confirm", async (request) => {
     throw new Error("\u8d26\u53f7\u6ca1\u6709\u914d\u7f6e\u6d4f\u89c8\u5668 Profile \u76ee\u5f55\u3002");
   }
 
-  const targetJob = body.publishJobId ? await jobRepository.getJobById(body.publishJobId) : null;
+  const targetJob = await resolveRecoveryTargetJob(body.accountId, body.publishJobId);
   const returnUrl = getReturnUrl(targetJob);
   const promptSnapshot = targetJob?.promptVersionSnapshotJson
     ? safeParseJson(targetJob.promptVersionSnapshotJson, {})
     : undefined;
   const checkUrl = getRecoveryCheckUrl();
+  const preservedChallengePage = await shouldUsePreservedChallengePage(account.profileDir, targetJob);
 
   try {
+    if (preservedChallengePage) {
+      await accountRepository.markActive(body.accountId);
+
+      if (targetJob) {
+        await jobRepository.updateJobStatus(targetJob.id, "login_checking", {
+          currentStage: "login_checking",
+          failureReason: null,
+          lastErrorType: null
+        });
+
+        const slot = await scheduleRepository.getSlotByJobId(targetJob.id);
+        if (slot) {
+          await scheduleRepository.updateSlotStatus(slot.id, "pending");
+        }
+      }
+
+      const sessionKey = targetJob ? buildPublishSessionKey(body.accountId, targetJob.id) : null;
+      const resumedInCurrentProcess = sessionKey ? publishService.hasOpenSession(sessionKey) : false;
+      const summary = resumedInCurrentProcess ? await workerRunner.tick() : null;
+
+      return {
+        ok: true,
+        blockedByLogin: false,
+        resumedByWorker: resumedInCurrentProcess,
+        message: resumedInCurrentProcess
+          ? "已记录你完成了安全验证，系统会继续复用当前保留的发布页面推进任务。"
+          : "已记录你完成了安全验证。为避免关闭原页面，接口不会另开浏览器抢占 Profile；任务会在下一轮 worker 继续推进，如果你当前没有常驻 worker，可以手动触发一次执行队列。",
+        summary
+      };
+    }
+
     const recovery = await sessionService.confirmRecoveredSession({
       accountId: body.accountId,
       profileDir: account.profileDir,
@@ -700,6 +760,60 @@ function getReturnUrl(job: Awaited<ReturnType<JobRepository["getJobById"]>>) {
 
 function getRecoveryCheckUrl() {
   return `${getAppConfig().zhihuBaseUrl}/settings/account`;
+}
+
+async function resolveRecoveryTargetJob(accountId: number, publishJobId?: number) {
+  if (publishJobId) {
+    return jobRepository.getJobById(publishJobId);
+  }
+
+  const blockedJobs = await jobRepository.listBlockedJobs(accountId);
+  return blockedJobs[0] ? jobRepository.getJobById(blockedJobs[0].id) : null;
+}
+
+function buildPublishSessionKey(accountId: number, jobId: number) {
+  return `publish-account-${accountId}-job-${jobId}`;
+}
+
+async function shouldUsePreservedChallengePage(
+  profileDir: string,
+  job: Awaited<ReturnType<JobRepository["getJobById"]>>
+) {
+  if (!job || !isChallengeRecoveryTarget(job)) {
+    return false;
+  }
+
+  return hasOpenPlaywrightProfileLock(profileDir);
+}
+
+function isChallengeRecoveryTarget(job: Awaited<ReturnType<JobRepository["getJobById"]>>) {
+  const combined = [job?.failureReason, job?.lastErrorType, job?.resumeAnchorJson, job?.questionUrl, job?.finalUrl]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join(" ")
+    .toLowerCase();
+
+  return (
+    job?.lastErrorType === "challenge_required" ||
+    combined.includes("account/unhuman") ||
+    combined.includes("captcha") ||
+    combined.includes("challenge") ||
+    combined.includes("安全验证") ||
+    combined.includes("异常验证") ||
+    combined.includes("人机验证") ||
+    combined.includes("滑块") ||
+    combined.includes("风控") ||
+    combined.includes("反爬")
+  );
+}
+
+async function hasOpenPlaywrightProfileLock(profileDir: string) {
+  const lockPath = path.join(profileDir, getAppConfig().browserChannel, ".playwright-profile.lock");
+  try {
+    await fs.access(lockPath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function classifyRecoveryError(error: unknown) {

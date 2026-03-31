@@ -26,6 +26,7 @@ type WorkerAccount = NonNullable<Awaited<ReturnType<AccountRepository["getAccoun
 const MAX_PREPARE_JOBS_PER_TICK = 3;
 const PREPARE_WINDOW_MINUTES = 120;
 const HARVEST_SKIP_WINDOW_MINUTES = 30;
+const PUBLISH_ATTEMPT_TIMEOUT_MS = 180_000;
 
 export class WorkerRunner {
   constructor(
@@ -97,6 +98,16 @@ export class WorkerRunner {
       elapsedMs: getElapsedMs(tickStartedAt),
       processedJobs: processResult.processedJobs
     });
+    const prepareResult = hasDuePublishJobs
+      ? { preparedJobs: 0 }
+      : await this.prepareQueuedJobs(accountsById, blockedAccountIds, blockedMessages);
+    const blockedByLogin = blockedAccountIds.size > 0;
+    logDebugTiming("worker.tick", "finished_prepare", {
+      elapsedMs: getElapsedMs(tickStartedAt),
+      preparedJobs: prepareResult.preparedJobs,
+      blockedAccounts: blockedAccountIds.size
+    });
+
     let harvestedCandidates = 0;
     const harvestCheckStart = new Date();
     const hasImminentJobs = hasDuePublishJobs
@@ -108,10 +119,11 @@ export class WorkerRunner {
     logDebugTiming("worker.tick", "resolved_harvest_window", {
       elapsedMs: getElapsedMs(tickStartedAt),
       hasImminentJobs,
-      hasDuePublishJobs
+      hasDuePublishJobs,
+      preparedJobs: prepareResult.preparedJobs
     });
 
-    if (!hasImminentJobs) {
+    if (!hasImminentJobs && prepareResult.preparedJobs === 0) {
       for (const account of runnableAccounts) {
         if (!account.profileDir || blockedAccountIds.has(account.id)) {
           continue;
@@ -155,16 +167,6 @@ export class WorkerRunner {
     logDebugTiming("worker.tick", "finished_harvest", {
       elapsedMs: getElapsedMs(tickStartedAt),
       harvestedCandidates
-    });
-
-    const prepareResult = hasDuePublishJobs
-      ? { preparedJobs: 0 }
-      : await this.prepareQueuedJobs(accountsById, blockedAccountIds, blockedMessages);
-    const blockedByLogin = blockedAccountIds.size > 0;
-    logDebugTiming("worker.tick", "finished_prepare", {
-      elapsedMs: getElapsedMs(tickStartedAt),
-      preparedJobs: prepareResult.preparedJobs,
-      blockedAccounts: blockedAccountIds.size
     });
 
     const summary = {
@@ -416,20 +418,52 @@ export class WorkerRunner {
       return { blockedByLogin: false, message: null };
     }
 
-    if (!jobDetail || !jobDetail.questionUrl || !jobDetail.questionTitle) {
+    if (!jobDetail) {
+      await this.failJob(job.id, slot?.id ?? null, "network_or_page_error", "任务缺少完整的题目信息。");
+      return { blockedByLogin: false, message: null };
+    }
+
+    const promptContext = await this.ensurePromptSnapshot(jobDetail, account);
+    if (!jobDetail.questionUrl || !jobDetail.questionTitle || !resolveJobContent(jobDetail)) {
+      const repairedJobDetail = await this.tryRehydrateJobPayload(job.id, account, promptContext);
+      if (repairedJobDetail) {
+        jobDetail = repairedJobDetail;
+      }
+    }
+
+    if (!jobDetail.questionUrl || !jobDetail.questionTitle) {
+      if (!jobDetail.topicCardId || !jobDetail.reviewId) {
+        await this.requeueJobForPreparation(
+          job.id,
+          slot?.id ?? null,
+          promptContext.promptSnapshotJson,
+          "任务缺少完整的题目信息，已转回待准备队列等待自动补齐。"
+        );
+        return { blockedByLogin: false, message: null };
+      }
+
       await this.failJob(job.id, slot?.id ?? null, "network_or_page_error", "任务缺少完整的题目信息。");
       return { blockedByLogin: false, message: null };
     }
 
     let questionTitle = jobDetail.questionTitle;
     let questionUrl = jobDetail.questionUrl;
-    let content = jobDetail.approvedContent ?? jobDetail.humanizedContent ?? jobDetail.draftContent;
+    let content = resolveJobContent(jobDetail);
     if (!content) {
+      if (!jobDetail.topicCardId || !jobDetail.reviewId) {
+        await this.requeueJobForPreparation(
+          job.id,
+          slot?.id ?? null,
+          promptContext.promptSnapshotJson,
+          "任务缺少完整的正文载荷，已转回待准备队列等待自动补齐。"
+        );
+        return { blockedByLogin: false, message: null };
+      }
+
       await this.failJob(job.id, slot?.id ?? null, "content_risk_block", "没有可发布的正文内容。", jobDetail.topicCardId);
       return { blockedByLogin: false, message: null };
     }
 
-    const promptContext = await this.ensurePromptSnapshot(jobDetail, account);
     let promptSnapshot = promptContext.promptSnapshot;
     let retryCount = job.retryCount;
     let rewriteCount = 0;
@@ -473,19 +507,23 @@ export class WorkerRunner {
       });
 
       try {
-        const publishResult = await this.publishService.runPublishAttempt({
-          sessionKey,
-          traceGroupId,
-          profileDir,
-          questionUrl,
-          content,
-          publishJobId: job.id,
-          publishAttemptId: attemptId,
-          promptSnapshot,
-          resumeAnchor: safeParseJson<PublishResumeAnchor | null>(jobDetail.resumeAnchorJson ?? "", null),
-          expectedZhihuUserName: account.zhihuUserName,
-          accountName: account.name
-        });
+        const publishResult = await withTimeoutReject(
+          this.publishService.runPublishAttempt({
+            sessionKey,
+            traceGroupId,
+            profileDir,
+            questionUrl,
+            content,
+            publishJobId: job.id,
+            publishAttemptId: attemptId,
+            promptSnapshot,
+            resumeAnchor: safeParseJson<PublishResumeAnchor | null>(jobDetail.resumeAnchorJson ?? "", null),
+            expectedZhihuUserName: account.zhihuUserName,
+            accountName: account.name
+          }),
+          PUBLISH_ATTEMPT_TIMEOUT_MS,
+          `发布步骤超时（>${Math.round(PUBLISH_ATTEMPT_TIMEOUT_MS / 1000)}s），已中断并重试。`
+        );
 
         await this.finalizePublishedJob({
           job,
@@ -567,17 +605,22 @@ export class WorkerRunner {
         );
 
         if (resolution.action === "MANUAL_LOGIN") {
-          await this.pauseAccountForLogin(job.accountId, failure.message, {
+          const keepChallengePageOpen = shouldKeepChallengePageOpenForManualRecovery(failure);
+          const recoveryMessage = buildManualRecoveryMessage(failure.message, keepChallengePageOpen);
+
+          await this.pauseAccountForLogin(job.accountId, recoveryMessage, {
             jobId: job.id,
             slotId: slot?.id ?? null,
             resumeAnchorJson,
-            failureType: failure.failureType
+            failureType: keepChallengePageOpen ? "challenge_required" : failure.failureType
           });
-          await this.publishService.closeSession(sessionKey);
+          if (!keepChallengePageOpen) {
+            await this.publishService.closeSession(sessionKey);
+          }
 
           return {
             blockedByLogin: true,
-            message: failure.message
+            message: recoveryMessage
           };
         }
 
@@ -859,6 +902,26 @@ export class WorkerRunner {
     return true;
   }
 
+  private async requeueJobForPreparation(
+    jobId: number,
+    slotId: number | null,
+    promptVersionSnapshotJson: string,
+    message: string
+  ) {
+    await this.jobRepository.retryJob(jobId);
+    await this.jobRepository.updateJobStatus(jobId, "queued", {
+      currentStage: "queued",
+      promptVersionSnapshotJson,
+      failureReason: message,
+      resumeAnchorJson: null,
+      lastErrorType: null
+    });
+
+    if (slotId) {
+      await this.scheduleRepository.updateSlotStatus(slotId, "pending");
+    }
+  }
+
   private async failJob(
     jobId: number,
     slotId: number | null,
@@ -932,7 +995,8 @@ export class WorkerRunner {
         failureType,
         failureReason: message,
         questionTitle: jobDetail?.questionTitle ?? jobDetail?.title ?? null,
-        entryUrl
+        entryUrl,
+        note: buildFailureDiagnosticNote(message)
       }
     );
   }
@@ -1206,16 +1270,54 @@ export class WorkerRunner {
       promptSnapshot
     };
   }
+
+  private async tryRehydrateJobPayload(
+    jobId: number,
+    account: WorkerAccount,
+    promptContext: { promptSnapshotJson: string; promptSnapshot: PromptSnapshotMap }
+  ) {
+    const replacement = await this.topicPipelineService.prepareNextPublishableDraft({
+      publishJobId: jobId,
+      promptSnapshot: promptContext.promptSnapshot,
+      accountContext: toAccountPromptContext(account),
+      onStage: async (stage) => {
+        await this.jobRepository.updateJobStatus(jobId, stage, {
+          currentStage: stage,
+          promptVersionSnapshotJson: promptContext.promptSnapshotJson,
+          failureReason: null,
+          lastErrorType: null
+        });
+      }
+    });
+
+    if (!replacement) {
+      return null;
+    }
+
+    await this.jobRepository.replaceJobPayload(jobId, {
+      topicCardId: replacement.topicCardId,
+      reviewId: replacement.reviewId,
+      title: replacement.title,
+      promptVersionSnapshotJson: promptContext.promptSnapshotJson
+    });
+
+    return this.jobRepository.getJobById(jobId);
+  }
 }
 
 function addMinutes(date: Date, minutes: number) {
   return new Date(date.getTime() + minutes * 60 * 1000);
 }
 
+function resolveJobContent(jobDetail: Pick<JobDetail, "approvedContent" | "humanizedContent" | "draftContent">) {
+  return jobDetail.approvedContent ?? jobDetail.humanizedContent ?? jobDetail.draftContent;
+}
+
 function normalizePublishError(error: unknown) {
   if (error instanceof PublishFlowError) {
+    const normalizedFailureType = normalizeFailureTypeByMessage(error.failureType, error.message);
     return {
-      failureType: error.failureType,
+      failureType: normalizedFailureType,
       message: error.message,
       currentUrl: error.currentUrl,
       meta: error.meta
@@ -1230,13 +1332,95 @@ function normalizePublishError(error: unknown) {
       meta: {}
     };
   }
-
   return {
-    failureType: "network_or_page_error" as FailureType,
+    failureType: normalizeFailureTypeByMessage(
+      "network_or_page_error" as FailureType,
+      error instanceof Error ? error.message : "发布流程发生未知错误。"
+    ),
     message: error instanceof Error ? error.message : "发布流程发生未知错误。",
     currentUrl: null,
     meta: {}
   };
+}
+
+function normalizeFailureTypeByMessage(failureType: FailureType, message: string): FailureType {
+  if (isChallengeSignalText(message)) {
+    return "challenge_required";
+  }
+
+  if (failureType !== "network_or_page_error" && failureType !== "unknown_failure") {
+    return failureType;
+  }
+
+  const normalized = message.toLowerCase();
+  if (
+    normalized.includes("尚未登录") ||
+    normalized.includes("需要人工登录") ||
+    normalized.includes("login required") ||
+    normalized.includes("not logged in")
+  ) {
+    return "login_required";
+  }
+
+  if (normalized.includes("账号不一致") || normalized.includes("identity mismatch")) {
+    return "account_identity_mismatch";
+  }
+
+  if (normalized.includes("session expired") || normalized.includes("登录态失效")) {
+    return "session_expired";
+  }
+
+  return failureType;
+}
+
+function shouldKeepChallengePageOpenForManualRecovery(input: {
+  failureType: FailureType;
+  message: string;
+  currentUrl: string | null;
+  meta: Record<string, unknown>;
+}) {
+  if (input.failureType === "challenge_required") {
+    return true;
+  }
+
+  const metaSnapshotUrl =
+    typeof input.meta.snapshot === "object" &&
+    input.meta.snapshot &&
+    "url" in input.meta.snapshot &&
+    typeof (input.meta.snapshot as { url?: unknown }).url === "string"
+      ? ((input.meta.snapshot as { url: string }).url)
+      : null;
+
+  return isChallengeSignalText([input.message, input.currentUrl, metaSnapshotUrl].filter(Boolean).join(" "));
+}
+
+function buildManualRecoveryMessage(message: string, keepChallengePageOpen: boolean) {
+  if (!keepChallengePageOpen) {
+    return message;
+  }
+
+  if (message.includes("当前发布页已保留")) {
+    return message;
+  }
+
+  return `${message} 当前发布页已保留，不会自动关闭。请直接在这个浏览器页面里完成人机验证、滑块或其他反爬挑战，处理完后再点“登录成功，继续下一步”。`;
+}
+
+function isChallengeSignalText(value: string) {
+  const normalized = value.toLowerCase();
+  return (
+    normalized.includes("account/unhuman") ||
+    normalized.includes("captcha") ||
+    normalized.includes("challenge") ||
+    normalized.includes("安全验证") ||
+    normalized.includes("异常验证") ||
+    normalized.includes("人机验证") ||
+    normalized.includes("滑块") ||
+    normalized.includes("风控") ||
+    normalized.includes("反爬") ||
+    normalized.includes("风险验证") ||
+    normalized.includes("访问受限")
+  );
 }
 
 function isLlmConnectionError(error: unknown): boolean {
@@ -1396,4 +1580,45 @@ function mapFailureSeverity(failureType: FailureType) {
   }
 
   return "medium" as const;
+}
+
+function buildFailureDiagnosticNote(message: string) {
+  if (!message) {
+    return null;
+  }
+
+  const fields = ["category", "code", "status", "syscall", "hostname"]
+    .map((key) => {
+      const matched = message.match(new RegExp(`${key}=([^|；\\n]+)`));
+      if (!matched?.[1]) {
+        return null;
+      }
+
+      return `${key}=${matched[1].trim()}`;
+    })
+    .filter((item): item is string => Boolean(item));
+
+  if (fields.length <= 0) {
+    return null;
+  }
+
+  return `LLM诊断：${fields.join(", ")}`;
+}
+
+async function withTimeoutReject<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer: NodeJS.Timeout | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(message));
+        }, timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
 }

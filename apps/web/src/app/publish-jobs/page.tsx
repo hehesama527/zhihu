@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { RetryJobButton } from "../../components/retry-job-button";
 import { StatusChip } from "../../components/status-chip";
 import { getPublishJobs } from "../../lib/api";
 
@@ -24,6 +25,7 @@ export default async function PublishJobsPage() {
                 <th>发布时间</th>
                 <th>失败信息</th>
                 <th>截图</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody>
@@ -48,11 +50,14 @@ export default async function PublishJobsPage() {
                       </div>
                     </td>
                     <td>{job.latestScreenshotPath ?? "-"}</td>
+                    <td>
+                      {canRetryJob(job.status) ? <RetryJobButton jobId={job.id} /> : <span className="muted">暂无</span>}
+                    </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={5}>还没有发布任务。</td>
+                  <td colSpan={6}>还没有发布任务。</td>
                 </tr>
               )}
             </tbody>
@@ -65,4 +70,8 @@ export default async function PublishJobsPage() {
 
 function formatTime(value: string | null) {
   return value ? new Date(value).toLocaleString("zh-CN") : "暂无";
+}
+
+function canRetryJob(status: string) {
+  return status === "failed_terminal";
 }
