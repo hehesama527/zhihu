@@ -22,6 +22,12 @@ type TickBranchResult = {
   message: string | null;
 };
 
+type PrepareJobResult = {
+  prepared: boolean;
+  blockedByLogin: boolean;
+  message: string | null;
+};
+
 type WorkerAccount = NonNullable<Awaited<ReturnType<AccountRepository["getAccount"]>>>;
 const MAX_PREPARE_JOBS_PER_TICK = 3;
 const PREPARE_WINDOW_MINUTES = 120;
@@ -187,6 +193,115 @@ export class WorkerRunner {
     return summary;
   }
 
+  async runJobNow(jobId: number): Promise<{
+    prepared: boolean;
+    processed: boolean;
+    blockedByLogin: boolean;
+    message: string | null;
+    job: JobDetail | null;
+  }> {
+    const job = await this.jobRepository.getJobById(jobId);
+    if (!job) {
+      throw new Error("任务不存在。");
+    }
+
+    const account = await this.accountRepository.getAccount(job.accountId);
+    if (!account) {
+      throw new Error("任务对应账号不存在。");
+    }
+    if (!account.profileDir) {
+      throw new Error("账号缺少浏览器 profile，无法立即执行。");
+    }
+
+    const manualLoginLocked = await hasManualLoginLock(account.id);
+    if (manualLoginLocked || isLoginBlockedAccount(account)) {
+      return {
+        prepared: false,
+        processed: false,
+        blockedByLogin: true,
+        message:
+          account.statusReason ??
+          (manualLoginLocked
+            ? `账号「${account.name}」正在等待人工登录完成。`
+            : `账号「${account.name}」需要先恢复登录态。`),
+        job
+      };
+    }
+
+    const preparationStatuses = new Set<JobDetail["status"]>([
+      "queued",
+      "topic_discovery",
+      "topic_agent",
+      "topic_review",
+      "writer",
+      "humanizing",
+      "review_hard_gate",
+      "review_editorial",
+      "review_publish"
+    ]);
+    const runnableStatuses = new Set<JobDetail["status"]>([
+      "review_passed",
+      "login_checking",
+      "publishing",
+      "publish_verify",
+      "retry_waiting",
+      "manual_login_required"
+    ]);
+
+    let prepared = false;
+    let latestJob: JobDetail | null = job;
+
+    if (preparationStatuses.has(job.status)) {
+      const prepareResult = await this.prepareJob(job, account);
+      prepared = prepareResult.prepared;
+      latestJob = await this.jobRepository.getJobById(jobId);
+      if (prepareResult.blockedByLogin) {
+        return {
+          prepared,
+          processed: false,
+          blockedByLogin: true,
+          message: prepareResult.message,
+          job: latestJob
+        };
+      }
+    }
+
+    latestJob = await this.jobRepository.getJobById(jobId);
+    if (!latestJob) {
+      return {
+        prepared,
+        processed: false,
+        blockedByLogin: false,
+        message: "任务在执行过程中已不存在。",
+        job: null
+      };
+    }
+
+    if (!runnableStatuses.has(latestJob.status)) {
+      return {
+        prepared,
+        processed: false,
+        blockedByLogin: false,
+        message: `任务当前状态为 ${latestJob.status}，暂不需要立即发布执行。`,
+        job: latestJob
+      };
+    }
+
+    const latestAccount = await this.accountRepository.getAccount(latestJob.accountId);
+    if (!latestAccount || !latestAccount.profileDir) {
+      throw new Error("任务对应账号缺少可用浏览器 profile。");
+    }
+
+    const result = await this.executeJob(latestJob, latestAccount as WorkerAccount);
+    return {
+      prepared,
+      processed: true,
+      blockedByLogin: result.blockedByLogin,
+      message: result.message,
+      job: await this.jobRepository.getJobById(jobId)
+    };
+  }
+
   private async fillScheduleSlots(account: WorkerAccount) {
     const startedAt = Date.now();
     let createdJobs = 0;
@@ -242,108 +357,18 @@ export class WorkerRunner {
         continue;
       }
 
-      try {
-        const jobStartedAt = Date.now();
-        logDebugTiming("worker.prepareQueuedJobs", "job_start", {
-          jobId: job.id,
-          accountId: job.accountId,
-          status: job.status,
-          scheduledAt: job.scheduledAt
-        });
-        const promptContext = await this.ensurePromptSnapshot(job, account);
-        const preparedDraft = await this.topicPipelineService.prepareNextPublishableDraft({
-          publishJobId: job.id,
-          promptSnapshot: promptContext.promptSnapshot,
-          accountContext: toAccountPromptContext(account),
-          onStage: async (stage) => {
-            logDebugTiming("worker.prepareQueuedJobs", "job_stage", {
-              jobId: job.id,
-              accountId: job.accountId,
-              stage,
-              elapsedMs: getElapsedMs(jobStartedAt)
-            });
-            await this.jobRepository.updateJobStatus(job.id, stage, {
-              currentStage: stage,
-              promptVersionSnapshotJson: promptContext.promptSnapshotJson,
-              failureReason: null,
-              lastErrorType: null
-            });
-          }
-        });
-
-        if (!preparedDraft) {
-          await this.jobRepository.updateJobStatus(job.id, "queued", {
-            currentStage: "queued",
-            promptVersionSnapshotJson: promptContext.promptSnapshotJson,
-            failureReason: "当前没有可用选题，等待下一轮采题后重试。",
-            lastErrorType: null
-          });
-          logDebugTiming("worker.prepareQueuedJobs", "job_no_candidate", {
-            jobId: job.id,
-            accountId: job.accountId,
-            elapsedMs: getElapsedMs(jobStartedAt)
-          });
-          continue;
-        }
-
-        await this.jobRepository.replaceJobPayload(job.id, {
-          topicCardId: preparedDraft.topicCardId,
-          reviewId: preparedDraft.reviewId,
-          title: preparedDraft.title,
-          promptVersionSnapshotJson: promptContext.promptSnapshotJson
-        });
+      const result = await this.prepareJob(job, account);
+      if (result.prepared) {
         preparedJobs += 1;
-        logDebugTiming("worker.prepareQueuedJobs", "job_ready", {
-          jobId: job.id,
-          accountId: job.accountId,
-          topicCardId: preparedDraft.topicCardId,
-          reviewId: preparedDraft.reviewId,
-          elapsedMs: getElapsedMs(jobStartedAt)
+      }
+      if (result.blockedByLogin) {
+        blockedAccountIds.add(job.accountId);
+        blockedMessages.push(result.message ?? `账号 #${job.accountId} 需要人工登录恢复。`);
+        accountsById.set(job.accountId, {
+          ...account,
+          status: "manual_login_required",
+          statusReason: result.message
         });
-      } catch (error) {
-        if (error instanceof SessionStateError) {
-          await this.pauseAccountForLogin(job.accountId, error.message, {
-            jobId: job.id,
-            slotId: job.scheduleSlotId,
-            failureType: mapSessionFailureType(error.sessionState),
-            triggerStage: job.currentStage ?? "queued"
-          });
-          blockedAccountIds.add(job.accountId);
-          blockedMessages.push(error.message);
-          accountsById.set(job.accountId, {
-            ...account,
-            status: "manual_login_required",
-            statusReason: error.message
-          });
-          logDebugTiming("worker.prepareQueuedJobs", "job_blocked_by_login", {
-            jobId: job.id,
-            accountId: job.accountId,
-            message: error.message
-          });
-          continue;
-        }
-
-        logDebugTiming("worker.prepareQueuedJobs", "job_failed", {
-          jobId: job.id,
-          accountId: job.accountId,
-          error: error instanceof Error ? error.message : String(error)
-        });
-
-        if (isLlmConnectionError(error)) {
-          // LLM 连接失败不终止任务，留给下一轮 tick 自动重试
-          console.error("[worker] LLM connection error during prepare, will retry next tick", {
-            jobId: job.id,
-            error: error instanceof Error ? error.message : String(error)
-          });
-          continue;
-        }
-
-        await this.failJob(
-          job.id,
-          job.scheduleSlotId,
-          "unknown_failure",
-          error instanceof Error ? error.message : "准备稿件时发生未知错误。"
-        );
       }
     }
 
@@ -353,6 +378,125 @@ export class WorkerRunner {
     });
 
     return { preparedJobs };
+  }
+
+  private async prepareJob(job: JobListItem, account: WorkerAccount): Promise<PrepareJobResult> {
+    try {
+      const jobStartedAt = Date.now();
+      logDebugTiming("worker.prepareQueuedJobs", "job_start", {
+        jobId: job.id,
+        accountId: job.accountId,
+        status: job.status,
+        scheduledAt: job.scheduledAt
+      });
+      const promptContext = await this.ensurePromptSnapshot(job, account);
+      const preparedDraft = await this.topicPipelineService.prepareNextPublishableDraft({
+        publishJobId: job.id,
+        promptSnapshot: promptContext.promptSnapshot,
+        accountContext: toAccountPromptContext(account),
+        onStage: async (stage) => {
+          logDebugTiming("worker.prepareQueuedJobs", "job_stage", {
+            jobId: job.id,
+            accountId: job.accountId,
+            stage,
+            elapsedMs: getElapsedMs(jobStartedAt)
+          });
+          await this.jobRepository.updateJobStatus(job.id, stage, {
+            currentStage: stage,
+            promptVersionSnapshotJson: promptContext.promptSnapshotJson,
+            failureReason: null,
+            lastErrorType: null
+          });
+        }
+      });
+
+      if (!preparedDraft) {
+        await this.jobRepository.updateJobStatus(job.id, "queued", {
+          currentStage: "queued",
+          promptVersionSnapshotJson: promptContext.promptSnapshotJson,
+          failureReason: "当前没有可用选题，等待下一轮采题后重试。",
+          lastErrorType: null
+        });
+        logDebugTiming("worker.prepareQueuedJobs", "job_no_candidate", {
+          jobId: job.id,
+          accountId: job.accountId,
+          elapsedMs: getElapsedMs(jobStartedAt)
+        });
+        return {
+          prepared: false,
+          blockedByLogin: false,
+          message: "当前没有可用选题，等待下一轮采题后重试。"
+        };
+      }
+
+      await this.jobRepository.replaceJobPayload(job.id, {
+        topicCardId: preparedDraft.topicCardId,
+        reviewId: preparedDraft.reviewId,
+        title: preparedDraft.title,
+        promptVersionSnapshotJson: promptContext.promptSnapshotJson
+      });
+      logDebugTiming("worker.prepareQueuedJobs", "job_ready", {
+        jobId: job.id,
+        accountId: job.accountId,
+        topicCardId: preparedDraft.topicCardId,
+        reviewId: preparedDraft.reviewId,
+        elapsedMs: getElapsedMs(jobStartedAt)
+      });
+      return {
+        prepared: true,
+        blockedByLogin: false,
+        message: null
+      };
+    } catch (error) {
+      if (error instanceof SessionStateError) {
+        await this.pauseAccountForLogin(job.accountId, error.message, {
+          jobId: job.id,
+          slotId: job.scheduleSlotId,
+          failureType: mapSessionFailureType(error.sessionState),
+          triggerStage: job.currentStage ?? "queued"
+        });
+        logDebugTiming("worker.prepareQueuedJobs", "job_blocked_by_login", {
+          jobId: job.id,
+          accountId: job.accountId,
+          message: error.message
+        });
+        return {
+          prepared: false,
+          blockedByLogin: true,
+          message: error.message
+        };
+      }
+
+      logDebugTiming("worker.prepareQueuedJobs", "job_failed", {
+        jobId: job.id,
+        accountId: job.accountId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+
+      if (isLlmConnectionError(error)) {
+        console.error("[worker] LLM connection error during prepare, will retry next tick", {
+          jobId: job.id,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        return {
+          prepared: false,
+          blockedByLogin: false,
+          message: error instanceof Error ? error.message : "LLM 连接失败，等待下一轮自动重试。"
+        };
+      }
+
+      await this.failJob(
+        job.id,
+        job.scheduleSlotId,
+        "unknown_failure",
+        error instanceof Error ? error.message : "准备稿件时发生未知错误。"
+      );
+      return {
+        prepared: false,
+        blockedByLogin: false,
+        message: error instanceof Error ? error.message : "准备稿件时发生未知错误。"
+      };
+    }
   }
 
   private async processDueJobs(

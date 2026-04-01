@@ -157,6 +157,9 @@ export type ScheduleSlot = {
   status: ScheduleSlotStatus;
   publishJobId: number | null;
   title: string | null;
+  jobStatus?: JobStatus | null;
+  jobDisplayStatus?: JobDisplayStatus | null;
+  currentStage?: JobStage | null;
 };
 
 export type TopicPriority = "P0" | "P1" | "P2" | "SKIP";

@@ -2,7 +2,7 @@ import type { Pool, ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
 import timezone from "dayjs/plugin/timezone.js";
-import type { ScheduleSlot } from "@zhihu-mvp/shared";
+import type { JobDisplayStatus, JobStage, JobStatus, ScheduleSlot } from "@zhihu-mvp/shared";
 import { getAppConfig } from "../config/env.js";
 
 dayjs.extend(utc);
@@ -16,6 +16,8 @@ type ScheduleRow = RowDataPacket & {
   status: "pending" | "in_progress" | "published" | "failed" | "manual_login_required";
   publish_job_id: number | null;
   title: string | null;
+  job_status: JobStatus | null;
+  current_stage: JobStage | null;
 };
 
 export class ScheduleRepository {
@@ -65,7 +67,8 @@ export class ScheduleRepository {
 
   async getNextUnassignedSlot(accountId: number) {
     const [rows] = await this.pool.query<ScheduleRow[]>(
-      `SELECT s.id, s.account_id, a.name AS account_name, s.scheduled_at, s.status, s.publish_job_id, pj.title
+      `SELECT s.id, s.account_id, a.name AS account_name, s.scheduled_at, s.status, s.publish_job_id, pj.title,
+              pj.status AS job_status, pj.current_stage
        FROM daily_publish_schedule s
        LEFT JOIN accounts a ON a.id = s.account_id
        LEFT JOIN publish_jobs pj ON pj.id = s.publish_job_id
@@ -96,7 +99,8 @@ export class ScheduleRepository {
 
   async getDueSlots(now = new Date()) {
     const [rows] = await this.pool.query<ScheduleRow[]>(
-      `SELECT s.id, s.account_id, a.name AS account_name, s.scheduled_at, s.status, s.publish_job_id, pj.title
+      `SELECT s.id, s.account_id, a.name AS account_name, s.scheduled_at, s.status, s.publish_job_id, pj.title,
+              pj.status AS job_status, pj.current_stage
        FROM daily_publish_schedule s
        LEFT JOIN accounts a ON a.id = s.account_id
        LEFT JOIN publish_jobs pj ON pj.id = s.publish_job_id
@@ -127,7 +131,8 @@ export class ScheduleRepository {
 
   async getSlotById(slotId: number) {
     const [rows] = await this.pool.query<ScheduleRow[]>(
-      `SELECT s.id, s.account_id, a.name AS account_name, s.scheduled_at, s.status, s.publish_job_id, pj.title
+      `SELECT s.id, s.account_id, a.name AS account_name, s.scheduled_at, s.status, s.publish_job_id, pj.title,
+              pj.status AS job_status, pj.current_stage
        FROM daily_publish_schedule s
        LEFT JOIN accounts a ON a.id = s.account_id
        LEFT JOIN publish_jobs pj ON pj.id = s.publish_job_id
@@ -142,7 +147,8 @@ export class ScheduleRepository {
 
   async getSlotByJobId(jobId: number) {
     const [rows] = await this.pool.query<ScheduleRow[]>(
-      `SELECT s.id, s.account_id, a.name AS account_name, s.scheduled_at, s.status, s.publish_job_id, pj.title
+      `SELECT s.id, s.account_id, a.name AS account_name, s.scheduled_at, s.status, s.publish_job_id, pj.title,
+              pj.status AS job_status, pj.current_stage
        FROM daily_publish_schedule s
        LEFT JOIN accounts a ON a.id = s.account_id
        LEFT JOIN publish_jobs pj ON pj.id = s.publish_job_id
@@ -183,7 +189,8 @@ export class ScheduleRepository {
 
   private async listScheduleForRange(startDate: string, endDate: string, accountId?: number): Promise<ScheduleSlot[]> {
     const [rows] = await this.pool.query<ScheduleRow[]>(
-      `SELECT s.id, s.account_id, a.name AS account_name, s.scheduled_at, s.status, s.publish_job_id, pj.title
+      `SELECT s.id, s.account_id, a.name AS account_name, s.scheduled_at, s.status, s.publish_job_id, pj.title,
+              pj.status AS job_status, pj.current_stage
        FROM daily_publish_schedule s
        LEFT JOIN accounts a ON a.id = s.account_id
        LEFT JOIN publish_jobs pj ON pj.id = s.publish_job_id
@@ -205,8 +212,52 @@ function mapScheduleRow(row: ScheduleRow): ScheduleSlot {
     scheduledAt: row.scheduled_at.toISOString(),
     status: row.status,
     publishJobId: row.publish_job_id,
-    title: row.title
+    title: row.title,
+    jobStatus: row.job_status ?? null,
+    jobDisplayStatus: mapJobDisplayStatus(row.job_status),
+    currentStage: row.current_stage ?? null
   };
+}
+
+function mapJobDisplayStatus(status: JobStatus | null): JobDisplayStatus | null {
+  if (!status) {
+    return null;
+  }
+
+  if (status === "queued") {
+    return "queued";
+  }
+
+  if (
+    status === "topic_discovery" ||
+    status === "topic_agent" ||
+    status === "topic_review" ||
+    status === "writer" ||
+    status === "humanizing" ||
+    status === "review_hard_gate" ||
+    status === "review_editorial" ||
+    status === "review_publish"
+  ) {
+    return "reviewing";
+  }
+
+  if (status === "review_passed") {
+    return "ready_to_publish";
+  }
+
+  if (status === "login_checking" || status === "publishing" || status === "publish_verify" || status === "retry_waiting") {
+    return "publishing";
+  }
+
+  if (status === "manual_login_required") {
+    return "manual_login_required";
+  }
+
+  if (status === "published") {
+    return "published";
+  }
+
+  return "publish_failed";
 }
 
 function generateSlots(date: string, slotCount: number) {

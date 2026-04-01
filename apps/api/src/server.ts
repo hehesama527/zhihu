@@ -508,6 +508,16 @@ app.post("/jobs/:id/reselect-topic", async (request) => {
   return { ok: true };
 });
 
+app.post("/jobs/:id/run-now", async (request) => {
+  const params = request.params as { id: string };
+  const jobId = Number(params.id);
+
+  return {
+    ok: true,
+    result: await workerRunner.runJobNow(jobId)
+  };
+});
+
 app.get("/account/status", async (request) => ({
   account: await dashboardService.getAccountView(parseOptionalAccountIdFromQuery(request))
 }));

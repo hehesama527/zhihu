@@ -46,7 +46,7 @@ function ScheduleTable({ slots }: { slots: Awaited<ReturnType<typeof getWeekSche
                 <td>{slot.accountName ?? `账号 #${slot.accountId ?? "-"}`}</td>
                 <td>{new Date(slot.scheduledAt).toLocaleString("zh-CN")}</td>
                 <td>
-                  <StatusChip status={slot.status} />
+                  <StatusChip status={resolveScheduleStatus(slot)} />
                 </td>
                 <td>
                   {slot.publishJobId ? (
@@ -66,4 +66,12 @@ function ScheduleTable({ slots }: { slots: Awaited<ReturnType<typeof getWeekSche
       </table>
     </div>
   );
+}
+
+function resolveScheduleStatus(slot: Awaited<ReturnType<typeof getWeekSchedule>>[number]) {
+  if (slot.jobDisplayStatus) {
+    return slot.jobDisplayStatus;
+  }
+
+  return slot.status;
 }

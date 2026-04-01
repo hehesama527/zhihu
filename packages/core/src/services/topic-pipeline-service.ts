@@ -52,6 +52,9 @@ type TopicAgentOutput = {
 
 export type WriterAccountContext = AccountPromptContext;
 
+const MAX_REWRITE_ATTEMPTS = 5;
+const MAX_DRAFT_REVIEW_ATTEMPTS = MAX_REWRITE_ATTEMPTS + 1;
+
 export class TopicPipelineService {
   constructor(
     private readonly llmService: LlmService,
@@ -299,7 +302,7 @@ export class TopicPipelineService {
     const startedAt = Date.now();
     let revisionFeedback = input.revisionFeedback ?? "";
 
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    for (let attempt = 0; attempt < MAX_DRAFT_REVIEW_ATTEMPTS; attempt += 1) {
       const attemptStartedAt = Date.now();
       logDebugTiming("topicPipeline.generateReviewedDraft", "attempt_start", {
         publishJobId: input.publishJobId,
@@ -471,7 +474,7 @@ export class TopicPipelineService {
     });
     return {
       kind: "blocked",
-      reason: "rewrite limit reached without passing review"
+      reason: `已经重写 ${MAX_REWRITE_ATTEMPTS} 次，仍未通过审核。`
     };
   }
 }

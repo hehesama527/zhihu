@@ -284,7 +284,7 @@ export class TopicRepository {
     const [rows] = await this.pool.query<RowDataPacket[]>(
       `SELECT COUNT(*) AS count
        FROM topic_candidates tc
-       WHERE tc.status IN ('new', 'processing', 'accepted')
+       WHERE tc.status IN ('new', 'processing')
          AND tc.validity_status IN ('unchecked', 'valid')
          ${buildAnsweredTopicExclusionClause("tc")}
          ${accountFilter}`,
