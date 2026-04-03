@@ -8,6 +8,7 @@ import { JobRepository } from "../repositories/job-repository.js";
 import { getAppConfig } from "../config/env.js";
 import { sanitizeSensitiveText } from "../utils/sensitive-data.js";
 import { OpsIncidentService, buildEmptyOpsScanSummary } from "./ops-incident-service.js";
+import { OpsLogScanService } from "./ops-log-scan-service.js";
 import { ScheduleService } from "./schedule-service.js";
 
 const execFileAsync = promisify(execFile);
@@ -30,16 +31,24 @@ type Pm2ProcessEntry = {
   };
 };
 
+type OpsScannerServiceOptions = {
+  logScanService?: OpsLogScanService;
+};
+
 export class OpsScannerService {
   private runningScan: Promise<OpsScanSummary> | null = null;
   private lastSummary: OpsScanSummary = buildEmptyOpsScanSummary();
+  private readonly logScanService: OpsLogScanService;
 
   constructor(
     private readonly incidentService: OpsIncidentService,
     private readonly jobRepository: JobRepository,
     private readonly accountRepository: AccountRepository,
-    private readonly scheduleService: ScheduleService
-  ) {}
+    private readonly scheduleService: ScheduleService,
+    options: OpsScannerServiceOptions = {}
+  ) {
+    this.logScanService = options.logScanService ?? new OpsLogScanService();
+  }
 
   async scan(): Promise<OpsScanSummary> {
     const summary = buildEmptyOpsScanSummary();
@@ -199,14 +208,20 @@ export class OpsScannerService {
 
   private async scanPm2Status() {
     const expected = ["zhihu-api", "zhihu-worker", "zhihu-web", "zhihu-ops-agent"];
+    const workspaceRoot = getAppConfig().workspaceRoot;
+    const localPm2CliPath = path.join(workspaceRoot, "node_modules", "pm2", "bin", "pm2");
 
     try {
-      const command = process.platform === "win32" ? "npx.cmd" : "npx";
-      const { stdout } = await execFileAsync(command, ["pm2", "jlist"], {
-        cwd: getAppConfig().workspaceRoot,
+      if (!fs.existsSync(localPm2CliPath)) {
+        throw new Error(`Local PM2 CLI not found: ${localPm2CliPath}`);
+      }
+
+      const { stdout } = await execFileAsync(process.execPath, [localPm2CliPath, "jlist"], {
+        cwd: workspaceRoot,
         encoding: "utf8",
         windowsHide: true,
-        timeout: 20_000
+        timeout: 20_000,
+        maxBuffer: 5 * 1024 * 1024
       });
       const processes = JSON.parse(stdout) as Pm2ProcessEntry[];
       const byName = new Map(processes.map((item) => [item.name ?? "", item]));
@@ -258,7 +273,10 @@ export class OpsScannerService {
           title: "PM2 status scan failed",
           rawErrorExcerpt: error instanceof Error ? error.message : String(error),
           evidence: {
-            workspaceRoot: getAppConfig().workspaceRoot
+            workspaceRoot,
+            nodeExecutable: process.execPath,
+            pm2CliPath: localPm2CliPath,
+            platform: process.platform
           }
         }
       ];
@@ -288,6 +306,7 @@ export class OpsScannerService {
         failureType: "worker_tick_stalled",
         title: "Worker tick output looks stalled",
         rawErrorExcerpt: `zhihu-worker.out.log has not been updated for ${Math.round(ageMs / 1000)} seconds.`,
+        fingerprintKey: workerOutLog,
         evidence: {
           logFile: workerOutLog,
           lastModifiedAt: stats.mtime.toISOString(),
@@ -340,55 +359,11 @@ export class OpsScannerService {
   }
 
   private async scanRecentLogs() {
-    const logDir = path.join(getAppConfig().workspaceRoot, ".runlogs");
-    if (!fs.existsSync(logDir)) {
-      return [];
-    }
+    const incidents = await this.logScanService.scanRecentErrors();
 
-    const files = fs
-      .readdirSync(logDir)
-      .filter((file) => file.endsWith(".log"))
-      .map((file) => path.join(logDir, file));
-
-    const incidents: Array<{
-      source: "log_scan";
-      severity: "high";
-      serviceName: string;
-      failureType: string;
-      title: string;
-      rawErrorExcerpt: string;
-      evidence: Record<string, unknown>;
-    }> = [];
-
-    for (const filePath of files) {
-      const stats = fs.statSync(filePath);
-      if (Date.now() - stats.mtime.getTime() > 10 * 60 * 1000) {
-        continue;
-      }
-
-      const lines = fs.readFileSync(filePath, "utf8").split(/\r?\n/).slice(-120);
-      const matched = lines.filter((line) => /(error|failed|exception|unhandled)/i.test(line)).slice(-8);
-      if (!matched.length) {
-        continue;
-      }
-
-      const serviceName = path.basename(filePath).replace(/\.(out|err)\.log$/i, "");
-      const excerpt = sanitizeSensitiveText(matched.join("\n")) ?? "Recent log errors were detected.";
-      incidents.push({
-        source: "log_scan",
-        severity: "high",
-        serviceName,
-        failureType: "recent_log_error",
-        title: `Recent error lines detected in ${path.basename(filePath)}`,
-        rawErrorExcerpt: excerpt,
-        evidence: {
-          filePath,
-          lastModifiedAt: stats.mtime.toISOString(),
-          matchedLines: matched.length
-        }
-      });
-    }
-
-    return incidents;
+    return incidents.map((incident) => ({
+      ...incident,
+      rawErrorExcerpt: sanitizeSensitiveText(incident.rawErrorExcerpt) ?? "Recent log errors were detected."
+    }));
   }
 }

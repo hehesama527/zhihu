@@ -3,7 +3,7 @@ import { OpsIncidentRepository, type UpsertOpsIncidentInput } from "../repositor
 import { sanitizeSensitiveText, sanitizeUnknown } from "../utils/sensitive-data.js";
 import type { FeishuNotificationResult } from "./feishu-notification-service.js";
 import { FeishuNotificationService } from "./feishu-notification-service.js";
-import { OpsDiagnosisService, buildIncidentFingerprint } from "./ops-diagnosis-service.js";
+import { OpsDiagnosisService, buildIncidentFingerprint, buildStableIncidentFingerprintText } from "./ops-diagnosis-service.js";
 
 export type ReportOpsIncidentInput = {
   source: OpsIncidentSource;
@@ -19,6 +19,7 @@ export type ReportOpsIncidentInput = {
   questionTitle?: string | null;
   rawErrorExcerpt?: string | null;
   evidence?: unknown;
+  fingerprintKey?: string | null;
 };
 
 export type ReportOpsIncidentResult = {
@@ -54,14 +55,15 @@ export class OpsIncidentService {
       evidence: sanitizedEvidence
     });
 
+    const fingerprintKey = input.fingerprintKey?.trim() || buildStableIncidentFingerprintText(sanitizedExcerpt ?? input.title);
+
     const fingerprint = buildIncidentFingerprint([
       input.source,
       input.serviceName,
       input.failureType ?? "unknown",
       input.jobId ?? "",
       input.accountId ?? "",
-      diagnosis.summary,
-      sanitizedExcerpt ?? ""
+      fingerprintKey
     ]);
 
     const payload: UpsertOpsIncidentInput = {

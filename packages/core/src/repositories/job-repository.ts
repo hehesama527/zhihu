@@ -418,6 +418,7 @@ export class JobRepository {
        FROM publish_attempts pa
        JOIN publish_jobs pj ON pj.id = pa.publish_job_id
        WHERE pa.status = 'running'
+         AND pj.status NOT IN ('published', 'failed_terminal')
          AND pa.created_at <= ?
        ORDER BY pa.created_at ASC`,
       [cutoff]
@@ -432,6 +433,30 @@ export class JobRepository {
       currentStage: row.current_stage ?? null,
       title: row.title ?? null
     }));
+  }
+
+  async cleanupRunningAttemptsForJob(
+    jobId: number,
+    input: {
+      exceptAttemptId?: number | null;
+      reason: string;
+    }
+  ) {
+    const hasExceptAttemptId = typeof input.exceptAttemptId === "number";
+    const [result] = await this.pool.query<ResultSetHeader>(
+      `UPDATE publish_attempts
+       SET status = 'failed',
+           failure_reason = CASE
+             WHEN failure_reason IS NULL OR failure_reason = '' THEN ?
+             ELSE failure_reason
+           END
+       WHERE publish_job_id = ?
+         AND status = 'running'
+         AND (? = 0 OR id <> ?)`,
+      [input.reason, jobId, hasExceptAttemptId ? 1 : 0, input.exceptAttemptId ?? 0]
+    );
+
+    return result.affectedRows;
   }
 
   async retryJob(jobId: number) {

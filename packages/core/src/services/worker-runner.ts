@@ -634,6 +634,10 @@ export class WorkerRunner {
         startedAt: new Date().toISOString()
       };
 
+      await this.jobRepository.cleanupRunningAttemptsForJob(job.id, {
+        reason: `Superseded by publish attempt #${attemptNo}.`
+      });
+
       const attemptId = await this.jobRepository.createPublishAttempt(
         job.id,
         attemptNo,
@@ -1086,6 +1090,10 @@ export class WorkerRunner {
       finalUrl: jobDetail?.finalUrl ?? null
     });
 
+    await this.jobRepository.cleanupRunningAttemptsForJob(jobId, {
+      reason: `Closed stale running attempts after job #${jobId} entered failed_terminal.`
+    });
+
     await this.jobRepository.updateJobStatus(jobId, "failed_terminal", {
       failureReason: `${failureType}: ${message}`,
       currentStage: "failed_terminal",
@@ -1234,6 +1242,11 @@ export class WorkerRunner {
       failureReason: null
     });
 
+    await this.jobRepository.cleanupRunningAttemptsForJob(input.job.id, {
+      exceptAttemptId: input.attemptId,
+      reason: `Closed stale running attempts after publish attempt #${input.attemptId} succeeded.`
+    });
+
     if (input.screenshotPath) {
       await this.jobRepository.createArtifact(input.attemptId, "screenshot", input.screenshotPath, {
         phase: input.artifactPhase ?? "publish-verify"
@@ -1322,6 +1335,10 @@ export class WorkerRunner {
     }
 
     for (const jobId of targetIds) {
+      await this.jobRepository.cleanupRunningAttemptsForJob(jobId, {
+        reason: `Closed stale running attempts after account #${accountId} entered manual_login_required.`
+      });
+
       const slot =
         options?.jobId === jobId && options.slotId
           ? { id: options.slotId }

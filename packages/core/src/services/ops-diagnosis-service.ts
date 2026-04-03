@@ -29,6 +29,11 @@ type OpsDiagnosisPayload = {
   suggestedAction?: unknown;
 };
 
+const INCIDENT_FINGERPRINT_NOISE_LINE_PATTERNS = [
+  /^\(use `node --trace-deprecation/i,
+  /^\(node:<pid>\) \[dep<num>\] deprecationwarning:/i
+];
+
 export class OpsDiagnosisService {
   async diagnose(input: OpsDiagnosisInput): Promise<OpsDiagnosisResult> {
     const sanitizedInput = {
@@ -83,6 +88,37 @@ export function buildIncidentFingerprint(parts: Array<string | number | null | u
     .join("|");
 
   return createHash("sha256").update(normalized || "empty").digest("hex");
+}
+
+export function buildStableIncidentFingerprintText(value: string | null | undefined) {
+  const normalizedLines = String(value ?? "")
+    .split(/\r?\n/)
+    .map((line) => normalizeIncidentFingerprintLine(line))
+    .filter(Boolean);
+
+  const meaningfulLines = normalizedLines.filter((line) => !isIncidentFingerprintNoiseLine(line));
+  return (meaningfulLines.length ? meaningfulLines : normalizedLines).slice(-8).join("\n");
+}
+
+export function normalizeIncidentFingerprintLine(value: string | null | undefined) {
+  const line = String(value ?? "").trim();
+  if (!line) {
+    return "";
+  }
+
+  return line
+    .replace(/^\d{4}-\d{2}-\d{2}[t\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?z?:\s*/i, "")
+    .replace(/\bnode:\d+\b/gi, "node:<pid>")
+    .replace(/\[dep\d+\]/gi, "[dep<num>]")
+    .replace(/(?:^|[\s(])\/(?:[^/\s]+\/)*[^/\s)]+/g, (match) => match.replace(/\/(?:[^/\s]+\/)*[^/\s)]+/, "<path>"))
+    .replace(/\b\d+\s+seconds\b/gi, "<duration_seconds>")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+export function isIncidentFingerprintNoiseLine(line: string) {
+  return INCIDENT_FINGERPRINT_NOISE_LINE_PATTERNS.some((pattern) => pattern.test(line));
 }
 
 function normalizeDiagnosisPayload(payload: OpsDiagnosisPayload): Omit<OpsDiagnosisResult, "provider"> {
