@@ -10,11 +10,13 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@zhihu-mvp/shared": "0.1.0",
+    "@fastify/multipart": "^9.4.0",
+    "@zhihu-mvp/shared": "0.1.2",
     "dayjs": "^1.11.13",
     "mysql2": "^3.14.0",
     "openai": "^4.86.1",
     "playwright": "^1.51.0",
+    "sharp": "^0.34.5",
     "toml": "^3.0.0",
     "zod": "^3.24.2"
   }

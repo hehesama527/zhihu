@@ -8,9 +8,12 @@ type AccountRow = RowDataPacket & {
   name: string;
   zhihu_user_name: string | null;
   writer_prompt_version_id: number | null;
+  risk_domain: string;
   status: string;
   status_reason: string | null;
   profile_dir: string | null;
+  cooldown_until: Date | null;
+  last_risk_at: Date | null;
   last_login_check_at: Date | null;
   last_publish_at: Date | null;
 };
@@ -20,9 +23,12 @@ type AccountRecord = {
   name: string;
   zhihuUserName: string | null;
   writerPromptVersionId: number | null;
+  riskDomain: string;
   status: string;
   statusReason: string | null;
   profileDir: string | null;
+  cooldownUntil: string | null;
+  lastRiskAt: string | null;
   lastLoginCheckAt: string | null;
   lastPublishAt: string | null;
 };
@@ -39,21 +45,22 @@ const INITIAL_LOGIN_REQUIRED_REASON = "需要先完成一次人工登录初始�
 
 const DEFAULT_ACCOUNT_NAME = "默认知乎账号";
 const DEFAULT_ZHIHU_USER_NAME = "二牛是个老实人";
+const DEFAULT_RISK_DOMAIN = "default";
 
 export class AccountRepository {
   constructor(private readonly pool: Pool) {}
 
   async ensureDefaultAccount() {
     await this.pool.query<ResultSetHeader>(
-      `INSERT INTO accounts (name, zhihu_user_name, status, status_reason, profile_dir)
-       SELECT ?, ?, 'manual_login_required', ?, NULL
+      `INSERT INTO accounts (name, zhihu_user_name, risk_domain, status, status_reason, profile_dir)
+       SELECT ?, ?, ?, 'manual_login_required', ?, NULL
        FROM DUAL
        WHERE NOT EXISTS (
          SELECT 1
          FROM accounts
          LIMIT 1
        )`,
-      [DEFAULT_ACCOUNT_NAME, DEFAULT_ZHIHU_USER_NAME, INITIAL_LOGIN_REQUIRED_REASON]
+      [DEFAULT_ACCOUNT_NAME, DEFAULT_ZHIHU_USER_NAME, DEFAULT_RISK_DOMAIN, INITIAL_LOGIN_REQUIRED_REASON]
     );
 
     const primaryAccount = await this.getPrimaryAccount();
@@ -94,11 +101,12 @@ export class AccountRepository {
     };
   }
 
-  async createAccount(input: { name: string; zhihuUserName?: string | null }) {
+  async createAccount(input: { name: string; zhihuUserName?: string | null; riskDomain?: string | null }) {
+    const riskDomain = normalizeRiskDomain(input.riskDomain);
     const [result] = await this.pool.query<ResultSetHeader>(
-      `INSERT INTO accounts (name, zhihu_user_name, status, status_reason, profile_dir)
-       VALUES (?, ?, 'manual_login_required', ?, NULL)`,
-      [input.name, input.zhihuUserName ?? null, INITIAL_LOGIN_REQUIRED_REASON]
+      `INSERT INTO accounts (name, zhihu_user_name, risk_domain, status, status_reason, profile_dir)
+       VALUES (?, ?, ?, 'manual_login_required', ?, NULL)`,
+      [input.name, input.zhihuUserName ?? null, riskDomain, INITIAL_LOGIN_REQUIRED_REASON]
     );
 
     const accountId = result.insertId;
@@ -218,17 +226,20 @@ export class AccountRepository {
       name?: string;
       zhihuUserName?: string | null;
       writerPromptVersionId?: number | null;
+      riskDomain?: string | null;
     }
   ) {
     const hasName = Object.prototype.hasOwnProperty.call(input, "name");
     const hasZhihuUserName = Object.prototype.hasOwnProperty.call(input, "zhihuUserName");
     const hasWriterPromptVersionId = Object.prototype.hasOwnProperty.call(input, "writerPromptVersionId");
+    const hasRiskDomain = Object.prototype.hasOwnProperty.call(input, "riskDomain");
 
     await this.pool.query(
       `UPDATE accounts
        SET name = CASE WHEN ? THEN ? ELSE name END,
            zhihu_user_name = CASE WHEN ? THEN ? ELSE zhihu_user_name END,
-           writer_prompt_version_id = CASE WHEN ? THEN ? ELSE writer_prompt_version_id END
+           writer_prompt_version_id = CASE WHEN ? THEN ? ELSE writer_prompt_version_id END,
+           risk_domain = CASE WHEN ? THEN ? ELSE risk_domain END
        WHERE id = ?`,
       [
         hasName ? 1 : 0,
@@ -237,6 +248,8 @@ export class AccountRepository {
         input.zhihuUserName ?? null,
         hasWriterPromptVersionId ? 1 : 0,
         input.writerPromptVersionId ?? null,
+        hasRiskDomain ? 1 : 0,
+        normalizeRiskDomain(input.riskDomain),
         accountId
       ]
     );
@@ -252,11 +265,23 @@ export class AccountRepository {
     );
   }
 
+  async markRiskDetected(accountId: number, options?: { cooldownHours?: number }) {
+    const cooldownHours = Math.max(1, Math.round(options?.cooldownHours ?? 12));
+    await this.pool.query(
+      `UPDATE accounts
+       SET last_risk_at = CURRENT_TIMESTAMP,
+           cooldown_until = DATE_ADD(CURRENT_TIMESTAMP, INTERVAL ? HOUR)
+       WHERE id = ?`,
+      [cooldownHours, accountId]
+    );
+  }
+
   async markActive(accountId: number) {
     await this.pool.query(
       `UPDATE accounts
        SET status = 'active',
            status_reason = NULL,
+           cooldown_until = NULL,
            last_login_check_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [accountId]
@@ -267,7 +292,8 @@ export class AccountRepository {
     await this.pool.query(
       `UPDATE accounts
        SET status = 'session_expired',
-           status_reason = ?
+           status_reason = ?,
+           last_risk_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [reason ?? "知乎登录态已经失效，请重新登录后恢复任务。", accountId]
     );
@@ -278,6 +304,7 @@ export class AccountRepository {
       `UPDATE accounts
        SET status = 'active',
            status_reason = NULL,
+           cooldown_until = NULL,
            last_publish_at = CURRENT_TIMESTAMP,
            last_login_check_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
@@ -314,12 +341,20 @@ function mapAccountRow(row: AccountRow): AccountRecord {
     name: row.name,
     zhihuUserName: row.zhihu_user_name,
     writerPromptVersionId: row.writer_prompt_version_id ?? null,
+    riskDomain: normalizeRiskDomain(row.risk_domain),
     status: row.status,
     statusReason: row.status_reason,
     profileDir: row.profile_dir,
+    cooldownUntil: row.cooldown_until?.toISOString() ?? null,
+    lastRiskAt: row.last_risk_at?.toISOString() ?? null,
     lastLoginCheckAt: row.last_login_check_at?.toISOString() ?? null,
     lastPublishAt: row.last_publish_at?.toISOString() ?? null
   };
+}
+
+function normalizeRiskDomain(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : DEFAULT_RISK_DOMAIN;
 }
 
 async function moveProfileDirToCanonical(sourceDir: string, targetDir: string) {

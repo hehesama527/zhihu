@@ -27,8 +27,14 @@ function createApp(name, args) {
 module.exports = {
   apps: [
     createApp("zhihu-api", "run start -w @zhihu-mvp/api"),
+    createApp("control-api", "run start -w @zhihu-mvp/control-api"),
+    createApp("hotspot-api", "run start -w @zhihu-mvp/hotspot-api"),
+    createApp("x-main-api", "run start -w @zhihu-mvp/x-api"),
+    createApp("x-main-worker", "run start -w @zhihu-mvp/x-worker"),
+    createApp("x-traditional-api", "run start -w @zhihu-mvp/x-traditional-api"),
+    createApp("x-traditional-worker", "run start -w @zhihu-mvp/x-traditional-worker"),
     createApp("zhihu-worker", "run start -w @zhihu-mvp/worker"),
     createApp("zhihu-ops-agent", "run start -w @zhihu-mvp/ops-agent"),
-    createApp("zhihu-web", "run start -w @zhihu-mvp/web -- --port 3000")
+    createApp("zhihu-web", "run start -w @zhihu-mvp/web -- --hostname 127.0.0.1 --port 3000")
   ]
 };

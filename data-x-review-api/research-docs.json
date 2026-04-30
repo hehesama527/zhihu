@@ -1,0 +1,12 @@
+[
+  {
+    "accountId": "acct-1",
+    "markdown": "# Account Research",
+    "version": 1,
+    "lastUpdatedAt": "2026-04-04T10:17:51.909Z",
+    "updateReason": "seed",
+    "updatedBy": "llm",
+    "userEditedAt": null,
+    "lastGeneratedAt": "2026-04-04T10:17:51.909Z"
+  }
+]

@@ -1,0 +1,86 @@
+chain: x_traditional
+account_key: account_b
+draft_status: draft_v1
+
+profile:
+  display_name: "Account B"
+  strategy_type: hotspot_trade_impact
+  positioning: "热点、事件影响、历史类比、交易翻译"
+  primary_objective: "把热点和消息面内容做成有交易价值的影响分析账号"
+  secondary_objective: "提高互动和被转发概率，同时保持判断质量"
+
+content_pillars:
+  - "热点事件本身的快速解读"
+  - "热点对市场情绪、叙事和交易节奏的影响"
+  - "类似历史事件的对照和复盘"
+  - "当前事件与过往事件的异同"
+  - "交易上需要关注的后续观察点"
+
+topic_selection_rules:
+  prioritize:
+    - "明显具有市场关注度的热点"
+    - "政策、项目、链上、宏观或交易所相关事件"
+    - "能明确映射到市场情绪或风险偏好的事件"
+    - "可以拿历史案例对照的热点"
+  avoid:
+    - "纯知识型指标教学"
+    - "只讲定义、不讲影响的内容"
+    - "没有市场影响的普通新闻"
+    - "已经过时且无新交易含义的旧热点"
+
+source_priority:
+  primary_sources:
+    - "当前市场热点和事件"
+    - "权威公告、项目方、交易所、监管或宏观来源"
+    - "历史相似事件"
+  secondary_sources:
+    - "市场二次讨论，仅用于补充市场接受度"
+
+timeliness_requirement: high
+evidence_requirement: high
+
+format_preferences:
+  preferred_formats:
+    - quick_reaction_single
+    - quick_thread
+    - quote_reply
+  less_preferred_formats:
+    - long_educational_thread
+
+reply_quote_policy:
+  allow_reply: true
+  allow_quote: true
+  note: "只在能补充交易影响、历史对照或判断翻译时使用，不做空转评论。"
+
+writer_constraints:
+  must_include:
+    - "热点值不值得看的判断"
+    - "对交易的具体影响点"
+    - "时间维度：短线、中线或观察期"
+    - "必要时给出历史相似案例"
+  must_avoid:
+    - "纯搬运新闻"
+    - "没有交易翻译的情绪表达"
+    - "夸大事件影响"
+    - "伪确定性"
+  opening_direction: "优先用热点值不值得看、会影响什么、和以前像不像做开头。"
+
+review_focus:
+  check_points:
+    - "有没有把热点转成交易影响，而不是只做资讯复述"
+    - "历史类比是否站得住"
+    - "有没有把短线反应说成必然中期趋势"
+    - "有没有缺少时间维度"
+
+disallowed_topics:
+  - "单纯的指标科普"
+  - "课程式长教学"
+  - "没有来源的传言"
+  - "强烈喊单"
+
+overlap_notes:
+  matrix_role: "热点和交易影响位"
+  do_not_compete_with:
+    - "account_a 的系统化指标和策略教学内容"
+  can_cross_when:
+    - "热点事件可以被拆成交易误区、结构性案例或策略复盘时"

@@ -1,255 +1,71 @@
 import Link from "next/link";
-import { AccountSwitcher } from "../components/account-switcher";
-import { StatusChip } from "../components/status-chip";
-import { WorkerPanel } from "../components/worker-panel";
-import { getAccounts, getDashboardSummaryForAccount } from "../lib/api";
 
-type DashboardPageProps = {
-  searchParams?: Promise<{
-    accountId?: string;
-  }>;
-};
-
-export default async function DashboardPage({ searchParams }: DashboardPageProps) {
-  const resolvedSearchParams = searchParams ? await searchParams : undefined;
-  const selectedAccountId = parseAccountId(resolvedSearchParams?.accountId);
-  const [summary, accounts] = await Promise.all([getDashboardSummaryForAccount(selectedAccountId), getAccounts()]);
-
+export default function WorkspacePage() {
   return (
-    <div className="stack">
-      <section className="page-header">
-        <div>
-          <h2>系统总览</h2>
-          <p className="muted">先看矩阵全局，再切到当前账号视图处理恢复、发文和人工干预。</p>
-        </div>
+    <main className="workspace-hub">
+      <section className="workspace-hero">
+        <span className="brand-kicker">矩阵工作台</span>
+        <h1>选择你要接管的链路</h1>
+        <p className="muted">
+          知乎、X 主控链路、X 传统链路，以及热点中心、配图中心、模型中心都在同一套工作台中统一接入。
+          业务链路之间相互隔离，但共享中控能力。
+        </p>
       </section>
 
-      <AccountSwitcher accounts={accounts} selectedAccountId={summary.account?.id ?? selectedAccountId} basePath="/" />
+      <section className="workspace-grid">
+        <Link href="/zhihu" className="workspace-card workspace-card--zhihu">
+          <span className="mini-badge mini-badge--accent">知乎</span>
+          <h2>知乎工作台</h2>
+          <p>排期、选题、写作、审核、发布、账号恢复和运维诊断都在这里闭环推进。</p>
+          <strong>进入知乎链路</strong>
+        </Link>
 
-      <section className="grid grid--four">
-        <article className="card">
-          <p className="muted">累计任务</p>
-          <div className="metric-value">{summary.metrics.totalJobs}</div>
-        </article>
-        <article className="card">
-          <p className="muted">成功发布</p>
-          <div className="metric-value">{summary.metrics.publishedJobs}</div>
-        </article>
-        <article className="card">
-          <p className="muted">待发布</p>
-          <div className="metric-value">{summary.metrics.readyToPublishJobs}</div>
-        </article>
-        <article className="card">
-          <p className="muted">登录阻塞</p>
-          <div className="metric-value">{summary.metrics.manualLoginJobs}</div>
-        </article>
+        <Link href="/twitter" className="workspace-card workspace-card--twitter">
+          <span className="mini-badge mini-badge--accent">X Workspace</span>
+          <h2>X 工作流入口</h2>
+          <p>先进入 X 入口页，再按任务主线进入 Traditional 工作台，或去配置中心查看提示词、绑定和作用域。</p>
+          <strong>进入 X 工作流入口</strong>
+        </Link>
+
+        <Link href="/twitter/traditional" className="workspace-card workspace-card--twitter">
+          <span className="mini-badge mini-badge--accent">Direct</span>
+          <h2>X 传统链路直达</h2>
+          <p>如果你已经确定要处理 Traditional 链路，也可以直接进入工作台总览，不经过 X 入口页分流。</p>
+          <strong>直达 Traditional 工作台</strong>
+        </Link>
       </section>
 
-      <section className="grid grid--two">
-        <article className="card">
-          <div className="card-header">
-            <div>
-              <h3>今日排期</h3>
-              <p className="muted">工作日按账号各自生成 3-4 个发布时间，范围固定在 08:00-20:00。</p>
-            </div>
-            <Link href="/schedule" className="button button--ghost">
-              查看完整排期
-            </Link>
-          </div>
-
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>账号</th>
-                  <th>时间</th>
-                  <th>状态</th>
-                  <th>任务</th>
-                </tr>
-              </thead>
-              <tbody>
-                {summary.todaySchedule.length ? (
-                  summary.todaySchedule.map((slot) => (
-                    <tr key={slot.id}>
-                      <td>{slot.accountName ?? `账号 #${slot.accountId ?? "-"}`}</td>
-                      <td>{new Date(slot.scheduledAt).toLocaleString("zh-CN")}</td>
-                      <td>
-                        <StatusChip status={slot.status} />
-                      </td>
-                      <td>
-                        {slot.publishJobId ? (
-                          <Link href={`/jobs/${slot.publishJobId}`}>{slot.title ?? `任务 #${slot.publishJobId}`}</Link>
-                        ) : (
-                          "待分配"
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={4}>今天还没有排期。</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </article>
-
-        <article className="card">
-          <div className="card-header">
-            <div>
-              <h3>当前账号视图</h3>
-              <p className="muted">系统优先复用已保存登录态，只有登录失效时才需要人工介入。</p>
-            </div>
-            <Link href={summary.account ? `/account?accountId=${summary.account.id}` : "/account"} className="button button--ghost">
-              去恢复页
-            </Link>
-          </div>
-
-          {summary.account ? (
-            <div className="stack">
-              <div className="inline-row">
-                <div>
-                  <p>{summary.account.name}</p>
-                  <p className="muted">知乎账号：{summary.account.zhihuUserName ?? "未命名"}</p>
-                </div>
-                <StatusChip status={summary.account.status} />
-              </div>
-              <p className="muted">最近登录检查：{formatTime(summary.account.lastLoginCheckAt)}</p>
-              <p className="muted">最近发布时间：{formatTime(summary.account.lastPublishAt)}</p>
-              <p className="muted">阻塞任务数：{summary.account.blockedJobs.length}</p>
-              <p className="muted">恢复原因：{summary.account.recoveryReason ?? "暂无"}</p>
-            </div>
-          ) : (
-            <p className="muted">还没有账号。</p>
-          )}
-        </article>
+      <section className="workspace-hero" style={{ marginTop: "2.25rem" }}>
+        <span className="brand-kicker">矩阵辅助</span>
+        <h2>中控能力</h2>
+        <p className="muted">
+          热点中心负责跨账号热点扫描和研究，配图中心负责资产调度，模型中心负责各 agent 的运行时绑定。
+          它们属于中控面板，不直接归属某一条内容链路。
+        </p>
       </section>
 
-      <WorkerPanel accountId={summary.account?.id ?? null} />
+      <section className="workspace-grid">
+        <Link href="/hotspots" className="workspace-card workspace-card--hotspots">
+          <span className="mini-badge mini-badge--accent">矩阵中控</span>
+          <h2>热点中心</h2>
+          <p>统一维护 X 热点池、watchlist、补研究和任务桥接，把情报层从具体账号执行层中拆出来。</p>
+          <strong>进入热点中心</strong>
+        </Link>
 
-      <section className="grid grid--two">
-        <article className="card">
-          <div className="card-header">
-            <div>
-              <h3>最近任务</h3>
-              <p className="muted">查看发布状态、失败分类和详情入口。</p>
-            </div>
-            <Link href="/publish-jobs" className="button button--ghost">
-              查看全部发布任务
-            </Link>
-          </div>
+        <Link href="/images" className="workspace-card workspace-card--images">
+          <span className="mini-badge mini-badge--accent">矩阵辅助</span>
+          <h2>配图中心</h2>
+          <p>统一管理图片导入、去重、审核、候选图检索和使用记录，供知乎与 X 任务直接绑定 asset。</p>
+          <strong>进入配图中心</strong>
+        </Link>
 
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>任务</th>
-                  <th>展示态</th>
-                  <th>失败分类</th>
-                </tr>
-              </thead>
-              <tbody>
-                {summary.recentJobs.length ? (
-                  summary.recentJobs.slice(0, 8).map((job) => (
-                    <tr key={job.id}>
-                      <td>
-                        <div className="stack stack--tight">
-                          <Link href={`/jobs/${job.id}`}>{job.title ?? `任务 #${job.id}`}</Link>
-                          <span className="muted">{job.questionTitle ?? "题目待绑定"}</span>
-                          <span className="muted">{formatTime(job.scheduledAt)}</span>
-                        </div>
-                      </td>
-                      <td>
-                        <StatusChip status={job.displayStatus} />
-                      </td>
-                      <td>
-                        <div className="stack stack--tight">
-                          <span>{job.latestFailureType ?? job.lastErrorType ?? "-"}</span>
-                          <span className="muted">{job.failureReason ?? "暂无失败原因"}</span>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={3}>还没有任务数据。</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </article>
-
-        <article className="card">
-          <div className="card-header">
-            <div>
-              <h3>最近题目</h3>
-              <p className="muted">看题目优先级、有效性状态和当前流转结果。</p>
-            </div>
-            <Link href="/topics" className="button button--ghost">
-              查看 Topics / Drafts
-            </Link>
-          </div>
-
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>题目</th>
-                  <th>优先级</th>
-                  <th>有效性</th>
-                </tr>
-              </thead>
-              <tbody>
-                {summary.recentTopics.length ? (
-                  summary.recentTopics.map((topic) => (
-                    <tr key={topic.id}>
-                      <td>
-                        <div className="stack stack--tight">
-                          <span>{topic.questionTitle}</span>
-                          <span className="muted">{topic.sourceType}</span>
-                        </div>
-                      </td>
-                      <td>{topic.priority ?? "-"}</td>
-                      <td>{formatValidity(topic.validityStatus, topic.validityReason)}</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={3}>还没有题目数据。</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </article>
+        <Link href="/models" className="workspace-card workspace-card--models">
+          <span className="mini-badge mini-badge--accent">矩阵中控</span>
+          <h2>模型中心</h2>
+          <p>给不同 agent 分配不同模型、协议、推理强度和超时，不再让所有链路共享一套默认模型。</p>
+          <strong>进入模型中心</strong>
+        </Link>
       </section>
-    </div>
+    </main>
   );
-}
-
-function formatTime(value: string | null) {
-  return value ? new Date(value).toLocaleString("zh-CN") : "暂无";
-}
-
-function parseAccountId(value?: string) {
-  if (!value) {
-    return null;
-  }
-
-  const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-}
-
-function formatValidity(status: string, reason: string | null) {
-  if (status === "valid") {
-    return "有效";
-  }
-
-  if (status === "invalid") {
-    return reason ?? "无效";
-  }
-
-  return "待校验";
 }

@@ -35,6 +35,9 @@ type PromptTestRunRow = RowDataPacket & {
   created_at: Date;
 };
 
+const activePromptSnapshotCache = new Map<PromptSetName, PromptVersionSnapshot | null>();
+const promptVersionCache = new Map<number, PromptVersionRow | null>();
+
 export class PromptRepository {
   constructor(private readonly pool: Pool) {}
 
@@ -108,9 +111,15 @@ export class PromptRepository {
        WHERE id = ?`,
       [input.label ?? null, input.content ?? null, input.notes ?? null, id]
     );
+
+    invalidatePromptVersionCache(id);
   }
 
   async getPromptVersionById(id: number) {
+    if (promptVersionCache.has(id)) {
+      return promptVersionCache.get(id) ?? null;
+    }
+
     const [rows] = await this.pool.query<PromptVersionRow[]>(
       `SELECT pv.*, ps.name AS set_name
        FROM prompt_versions pv
@@ -120,7 +129,9 @@ export class PromptRepository {
       [id]
     );
 
-    return rows[0] ?? null;
+    const row = rows[0] ?? null;
+    promptVersionCache.set(id, row);
+    return row;
   }
 
   async getPromptVersionSnapshotById(id: number): Promise<PromptVersionSnapshot | null> {
@@ -142,21 +153,30 @@ export class PromptRepository {
       promptVersion.prompt_set_id,
       id
     ]);
+
+    invalidateActivePromptSnapshotCache(promptVersion.set_name as PromptSetName);
+    invalidatePromptVersionCacheForSet(promptVersion.set_name as PromptSetName);
   }
 
   async getActivePromptContent(name: PromptSetName) {
-    const row = await this.getActivePromptVersion(name);
-    return row?.content ?? null;
+    const snapshot = await this.getActivePromptSnapshot(name);
+    return snapshot?.content ?? null;
   }
 
   async getActivePromptVersionId(name: PromptSetName) {
-    const row = await this.getActivePromptVersion(name);
-    return row?.id ?? null;
+    const snapshot = await this.getActivePromptSnapshot(name);
+    return snapshot?.promptVersionId ?? null;
   }
 
   async getActivePromptSnapshot(name: PromptSetName): Promise<PromptVersionSnapshot | null> {
+    if (activePromptSnapshotCache.has(name)) {
+      return activePromptSnapshotCache.get(name) ?? null;
+    }
+
     const row = await this.getActivePromptVersion(name);
-    return row ? mapPromptSnapshot(row) : null;
+    const snapshot = row ? mapPromptSnapshot(row) : null;
+    activePromptSnapshotCache.set(name, snapshot);
+    return snapshot;
   }
 
   async getActivePromptSnapshots(names: PromptSetName[]): Promise<PromptSnapshotMap> {
@@ -218,6 +238,22 @@ export class PromptRepository {
     );
 
     return rows[0] ?? null;
+  }
+}
+
+function invalidateActivePromptSnapshotCache(name: PromptSetName) {
+  activePromptSnapshotCache.delete(name);
+}
+
+function invalidatePromptVersionCache(id: number) {
+  promptVersionCache.delete(id);
+}
+
+function invalidatePromptVersionCacheForSet(name: PromptSetName) {
+  for (const [id, row] of promptVersionCache.entries()) {
+    if (row?.set_name === name) {
+      promptVersionCache.delete(id);
+    }
   }
 }
 

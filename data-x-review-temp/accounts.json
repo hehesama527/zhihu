@@ -1,0 +1,25 @@
+[
+  {
+    "id": "f34a7383-a7eb-490b-8d8b-7d4083741f60",
+    "name": "Review Bot",
+    "handle": "review_bot",
+    "persona": "QA",
+    "targetAudience": "internal",
+    "styleGuide": "direct",
+    "learningTargets": [
+      "qa"
+    ],
+    "manualNotes": "review",
+    "accessToken": null,
+    "authStatus": null,
+    "authStatusReason": null,
+    "authCheckedAt": null,
+    "profileDir": "H:\\claw\\data-x\\profiles\\review_bot",
+    "proxyUrl": null,
+    "status": "active",
+    "lastResearchAt": null,
+    "lastPublishedAt": null,
+    "createdAt": "2026-04-04T09:42:53.183Z",
+    "updatedAt": "2026-04-04T09:42:53.183Z"
+  }
+]

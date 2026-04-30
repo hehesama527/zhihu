@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "mappings": [
+    {
+      "accountKey": "account_a",
+      "enabled": true,
+      "accountIds": ["trad-account-a"],
+      "handles": ["account_a"],
+      "names": ["Account A", "测试账户A｜知识策略拆解"]
+    },
+    {
+      "accountKey": "account_b",
+      "enabled": true,
+      "accountIds": ["trad-account-b"],
+      "handles": ["account_b"],
+      "names": ["Account B", "测试账户B｜热点交易观察"]
+    }
+  ]
+}

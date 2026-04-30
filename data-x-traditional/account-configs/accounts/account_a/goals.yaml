@@ -1,0 +1,34 @@
+chain: x_traditional
+account_key: account_a
+draft_status: draft_v1
+
+current_phase: "知识分享打底期"
+time_horizon_days: 14
+
+primary_goal: "先建立一个稳定的知识分享认知，让读者知道这个号是讲指标和策略的。"
+secondary_goal: "提高收藏、关注和回看价值。"
+
+kpi_priority:
+  - "收藏"
+  - "关注转化"
+  - "高质量评论"
+  - "稳定完读"
+
+current_focus:
+  - "先围绕 3 到 5 个基础指标做连续输出"
+  - "建立‘定义 + 场景 + 误区 + 边界’的稳定结构"
+  - "减少过度宽泛的话题，优先做能讲透的小主题"
+
+current_experiments:
+  - "测试 thread 与结构化单条，哪个更适合知识型内容沉淀"
+  - "测试误区开头和判断开头，哪个更适合提高停留"
+  - "测试指标单讲和指标组合讲，哪个收藏率更高"
+
+not_a_priority_for_now:
+  - "追最快热点"
+  - "高频 quote/reply"
+  - "强情绪争议流量"
+
+success_definition:
+  short_term: "让读者形成‘这个号讲得清楚、值得存’的印象。"
+  medium_term: "逐步形成指标和策略系列内容的可预期性。"

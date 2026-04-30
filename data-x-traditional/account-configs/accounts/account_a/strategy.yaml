@@ -1,0 +1,86 @@
+chain: x_traditional
+account_key: account_a
+draft_status: draft_v1
+
+profile:
+  display_name: "Account A"
+  strategy_type: knowledge_share
+  positioning: "技术指标、策略拆解、交易认知分享"
+  primary_objective: "把指标和策略内容做成可持续的知识分享账号"
+  secondary_objective: "积累收藏和关注，而不是追求短期热点互动"
+
+content_pillars:
+  - "技术指标的定义、作用和适用边界"
+  - "单个策略的完整拆解：入场、出场、失效条件"
+  - "两个或多个指标的配合使用方式"
+  - "常见交易误区与误读"
+  - "风险控制和执行纪律的结构化表达"
+
+topic_selection_rules:
+  prioritize:
+    - "适合被系统讲清楚的指标类主题，例如 MACD、RSI、均线、成交量"
+    - "适合做策略拆解的主题，例如突破、回踩、背离、趋势跟随"
+    - "读者容易误解但值得反复解释的概念"
+    - "可以沉淀为 thread 或系列化内容的知识点"
+  avoid:
+    - "纯消息面热点复述"
+    - "没有方法论价值的即时市场吐槽"
+    - "只讲结论、不讲条件的策略内容"
+    - "过于依赖单一热点时效性的内容"
+
+source_priority:
+  primary_sources:
+    - "过往经典指标和策略案例"
+    - "账户内部研究和复盘"
+    - "历史行情中的典型结构"
+  secondary_sources:
+    - "当前市场热点，仅在能转成知识点时使用"
+
+timeliness_requirement: medium
+evidence_requirement: medium_high
+
+format_preferences:
+  preferred_formats:
+    - thread
+    - structured_single
+  less_preferred_formats:
+    - quick_reaction_single
+    - quote_reply
+
+reply_quote_policy:
+  allow_reply: false
+  allow_quote: false
+  note: "除非是借别人的错误观点做知识拆解，否则不建议把这个账号做成强 reply/quote 型。"
+
+writer_constraints:
+  must_include:
+    - "定义或判断"
+    - "适用场景"
+    - "容易误解的点"
+    - "边界条件或失效条件"
+  must_avoid:
+    - "伪教学口吻"
+    - "收益承诺"
+    - "一句话神化指标"
+    - "没有结构的热点拼贴"
+  opening_direction: "优先用常见误区、核心判断或指标的真实作用做开头。"
+
+review_focus:
+  check_points:
+    - "内容是否真的在讲方法，而不是借知识壳子发情绪"
+    - "是否把指标讲成万能工具"
+    - "是否讲清楚适用边界"
+    - "是否出现过度承诺或伪确定性"
+
+disallowed_topics:
+  - "纯新闻快讯"
+  - "未验证的内幕爆料"
+  - "情绪喊单"
+  - "泛泛而谈的成功学"
+
+overlap_notes:
+  matrix_role: "指标与策略教育位"
+  do_not_compete_with:
+    - "account_b 的即时热点反应和事件影响内容"
+  can_cross_when:
+    - "某个热点可以被转成指标误区、策略框架或历史结构教学时"

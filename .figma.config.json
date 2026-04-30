@@ -1,0 +1,44 @@
+{
+  "name": "H-CLAW Design System",
+  "version": "1.0.0",
+  "themes": {
+    "zhihu": {
+      "name": "知乎主题",
+      "colors": {
+        "accent": "#c55a11",
+        "accentSoft": "#f0c7a4",
+        "bg": "#f9f7f4",
+        "panel": "#ffffff",
+        "text": "#1f1a17",
+        "muted": "#72665d",
+        "line": "#e6e2dd",
+        "success": "#2d7c58",
+        "danger": "#a63d40",
+        "warning": "#9f6b00"
+      }
+    },
+    "twitter": {
+      "name": "Twitter 主题",
+      "colors": {
+        "accent": "#0f6c5a",
+        "accentSoft": "#bfe8da"
+      }
+    },
+    "images": {
+      "name": "Images 主题",
+      "colors": {
+        "accent": "#0b7a75",
+        "accentSoft": "#bfe9e4"
+      }
+    }
+  },
+  "components": [
+    "ProductShell",
+    "Card",
+    "Button",
+    "StatusChip",
+    "AccountCard",
+    "Table",
+    "PromptStudio"
+  ]
+}

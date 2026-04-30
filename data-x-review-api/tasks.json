@@ -1,0 +1,94 @@
+[
+  {
+    "id": "task-draft",
+    "accountId": "acct-1",
+    "title": "Draft task",
+    "brief": "brief",
+    "goal": "goal",
+    "preferredMode": "single",
+    "forceResearch": false,
+    "status": "approved_to_publish",
+    "currentStage": "approved_to_publish",
+    "researchVersion": 1,
+    "researchMarkdownSnapshot": "# Account Research",
+    "draftPack": {
+      "summary": "sum",
+      "posts": [
+        "draft body"
+      ],
+      "notes": [
+        "n"
+      ]
+    },
+    "reviewResult": {
+      "decision": "approve",
+      "reason": "approved in test",
+      "revisionInstructions": [],
+      "qualityNotes": []
+    },
+    "publishPlan": {
+      "shouldPublish": true,
+      "mode": "single",
+      "cadence": "defer",
+      "deferMinutes": 15,
+      "reason": "approved in test"
+    },
+    "publishResult": null,
+    "revisionCount": 0,
+    "researchCount": 1,
+    "scheduledAt": "2026-04-04T10:32:51.979Z",
+    "failureStage": null,
+    "failureType": null,
+    "failureReason": null,
+    "createdAt": "2026-04-04T10:17:51.909Z",
+    "updatedAt": "2026-04-04T10:17:51.979Z",
+    "startedAt": "2026-04-04T10:17:51.909Z",
+    "finishedAt": null
+  },
+  {
+    "id": "task-failed-approved",
+    "accountId": "acct-1",
+    "title": "Failed approved task",
+    "brief": "brief",
+    "goal": "goal",
+    "preferredMode": "single",
+    "forceResearch": false,
+    "status": "approved_to_publish",
+    "currentStage": "approved_to_publish",
+    "researchVersion": 1,
+    "researchMarkdownSnapshot": "# Account Research",
+    "draftPack": {
+      "summary": "sum",
+      "posts": [
+        "draft body"
+      ],
+      "notes": [
+        "n"
+      ]
+    },
+    "reviewResult": {
+      "decision": "approve",
+      "reason": "approved",
+      "revisionInstructions": [],
+      "qualityNotes": []
+    },
+    "publishPlan": {
+      "shouldPublish": true,
+      "mode": "single",
+      "cadence": "single_now",
+      "deferMinutes": 0,
+      "reason": "ok"
+    },
+    "publishResult": null,
+    "revisionCount": 0,
+    "researchCount": 1,
+    "scheduledAt": null,
+    "failureStage": null,
+    "failureType": null,
+    "failureReason": null,
+    "createdAt": "2026-04-04T10:17:51.909Z",
+    "updatedAt": "2026-04-04T10:17:51.992Z",
+    "startedAt": "2026-04-04T10:17:51.909Z",
+    "finishedAt": null
+  }
+]

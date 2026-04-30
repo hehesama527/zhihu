@@ -1,0 +1,75 @@
+chain: x_traditional
+scope: traditional_only
+draft_status: draft_v1
+
+purpose: "只约束传统链路里的 account_a 和 account_b，不影响 X Main 和其他业务链路。"
+
+accounts:
+  account_a:
+    role: "知识分享位"
+    preferred_domain:
+      - "指标"
+      - "策略"
+      - "交易误区"
+      - "方法论"
+  account_b:
+    role: "热点影响位"
+    preferred_domain:
+      - "热点"
+      - "事件"
+      - "消息面"
+      - "历史类比"
+      - "交易影响"
+
+duplicate_topic_policy:
+  default_rule: "同一个热点或同一主题，默认优先只给一个账号发。"
+  exception_rule: "只有在两个账号角度明显不同且互补时，才允许双发。"
+
+routing_rules:
+  - name: "知识内容优先给 A"
+    if_topic_matches:
+      - "指标定义"
+      - "策略拆解"
+      - "执行框架"
+      - "交易误区"
+    assign_to: account_a
+
+  - name: "热点影响内容优先给 B"
+    if_topic_matches:
+      - "即时热点"
+      - "政策/宏观/项目事件"
+      - "消息面影响"
+      - "历史相似事件映射"
+    assign_to: account_b
+
+  - name: "热点被转成知识框架时可给 A"
+    if_topic_matches:
+      - "热点带出的指标误读"
+      - "热点带出的策略复盘"
+      - "热点转成结构化教学"
+    assign_to: account_a
+    note: "这类内容必须从教学或方法论角度展开，不能和 account_b 重复做即时反应。"
+
+cross_post_rules:
+  allow_same_hotspot_for_both: true
+  requirements:
+    - "account_b 负责即时热点和交易影响"
+    - "account_a 负责方法论、误区或结构性复盘"
+    - "两边开头、重点和结尾不能高度相似"
+  recommended_gap_hours: 6
+
+overlap_limits:
+  same_hotspot_same_day_max_accounts: 2
+  same_angle_allowed: false
+  language_similarity_should_be_low: true
+
+fallback_rules:
+  if_uncertain_owner: "优先只发一个账号，不强求两个账号都覆盖。"
+  if_topic_is_half_hotspot_half_knowledge: "先判断读者最核心需求：要快反就给 B，要讲清楚就给 A。"
+
+review_escalation:
+  escalate_when:
+    - "同一热点两个账号都准备发，但角度差异不明确"
+    - "A 的内容看起来像热点快讯"
+    - "B 的内容看起来像课程式教学"
+  action: "退回 Main 重新分配或重新改写 angle。"

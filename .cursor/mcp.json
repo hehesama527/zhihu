@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "chrome-devtools": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "chrome-devtools-mcp@latest",
+        "--isolated",
+        "--viewport",
+        "1440x960",
+        "--no-usage-statistics"
+      ]
+    },
+    "Stitch": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "stitch-mcp-server@latest"
+      ],
+      "env": {
+        "STITCH_API_KEY": "AQ.Ab8RN6KWZ1gJJFe3cl_fDSMQFbT4lHG__EOf0Aa8lHCGrXB5mQ"
+      }
+    }
+  }
+}

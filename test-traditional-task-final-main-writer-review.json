@@ -1,0 +1,156 @@
+﻿{
+    "task":  {
+                 "id":  "199e818b-a360-4f7e-bde8-6ea8509f6b3d",
+                 "accountId":  "trad-account-a",
+                 "title":  "MACD背离为什么不能单独当买点",
+                 "brief":  "围绕指标误区写一条单帖：先给结论，再说明必须同时看结构、周期和失效边界，避免喊单和鸡汤。",
+                 "goal":  "给刚建立交易系统的中文交易者拆解一个常见误区：MACD背离只能作为节奏确认，不能脱离结构、周期和止损边界单独使用。",
+                 "preferredMode":  "single",
+                 "status":  "approved_to_publish",
+                 "currentStage":  "approved_to_publish",
+                 "imageAssetId":  null,
+                 "soulVersion":  1,
+                 "soulMarkdownSnapshot":  "# Account Soul\n\n- Account ID: trad-account-a\n- Version: v1\n- Last Updated At: 2026-04-21T08:10:41.119Z\n- Updated By: user\n- Update Reason: init\n- User Edited At: not_set\n\n## Core Identity\n\n一个只谈结构、条件和执行边界的中文交易研究号，专门把常见指标和策略拆成普通人能直接消化的判断框架。\n\n## Target Reader\n\n刚开始建立交易系统、讨厌空话、希望把指标和策略讲明白的中文交易者。\n\n## Voice Traits\n\n- 先说结论再讲条件；多给场景，不写鸡汤；允许有参数，但只保留真正影响判断的参数；不喊单，不做收益承诺。\n\n## Worldview\n\n- 传统链路虚拟账户，用于前端界面和写作审核链路测试，不接真实发布。\n\n## Proof Anchors\n\n- 技术指标拆解\n- 策略执行边界\n- 交易误区复盘\n\n## Signature Moves\n\n- Not set.\n\n## Product Mention Policy\n\n- Not set.\n\n## Hard Boundaries\n\n- Not set.\n\n## Taboo Lexicon\n\n- Not set.\n\n## Exemplar Lines\n\n- Not set.",
+                 "draftPack":  {
+                                   "summary":  "拆解MACD背离误区，明确其作为节奏确认工具的定位，列出结构、周期、止损三大生效条件，并通过正反场景对比给出执行边界。",
+                                   "posts":  [
+                                                 "很多人把MACD背离当独立买点，结果反复止损。背离从来不是开仓按钮，它只是节奏确认器。\n脱离结构单独看，必踩坑。生效必须过三道关：\n- 结构位：背离必须落在关键支撑或趋势末端。破位下行中的背离，只是下跌中继。\n- 周期：大周期定方向。日线空头时，小周期背离只做反弹，不当反转。\n- 边界：前低跌破或结构破坏，必须离场。\n场景对比：背离+支撑企稳可跟随节奏；背离+放量破位是接飞刀。\n先确认结构和周期，背离才有意义。脱离位置的指标信号，一律按噪音处理。"
+                                             ],
+                                   "notes":  [
+                                                 "严格遵循先结论后条件结构，参数克制。无标签。符合pitfall_log风格与交易研究号边界感。",
+                                                 "humanizer[1] fallback: Missing local humanizer-zh skill at C:\\Users\\your_user\\.codex\\skills\\humanizer-zh\\SKILL.md"
+                                             ]
+                               },
+                 "mainAgentPlan":  {
+                                       "usedFallback":  false,
+                                       "fallbackStage":  null,
+                                       "decision":  "write",
+                                       "reason":  "热点候选为空，直接基于任务目标与账号人设生成。账号定位专注指标拆解与执行边界，任务目标明确指向MACD背离的常见误区。该话题高度契合“交易误区复盘”与“策略执行边界”的学习目标，符合先结论后条件、重场景轻鸡汤的风格要求，适合直接执行单帖发布。",
+                                       "shouldWrite":  true,
+                                       "shouldPublish":  false,
+                                       "preferredMode":  "single",
+                                       "publishAction":  "post",
+                                       "contentStyle":  "pitfall_log",
+                                       "useHotspot":  false,
+                                       "selectedHotspotIds":  [
+
+                                                              ],
+                                       "targetTweetUrl":  null,
+                                       "targetTweetReason":  "",
+                                       "runtimeWriterPrompt":  "",
+                                       "cadence":  "defer",
+                                       "deferMinutes":  0,
+                                       "tagPlan":  {
+                                                       "hashtags":  [
+
+                                                                    ],
+                                                       "placement":  "none",
+                                                       "applyTo":  "single",
+                                                       "maxTags":  0,
+                                                       "reason":  "账号风格克制，仅保留一个尾部标签用于分类归档，不追求流量曝光或泛话题蹭量。"
+                                                   },
+                                       "writerBrief":  {
+                                                           "angle":  "从新手高频踩坑场景切入，指出MACD背离的局限性，将其重新定位为“节奏确认工具”而非“独立买点信号”。",
+                                                           "goal":  "帮助读者建立指标使用的条件意识，明确背离信号生效的三大前提（结构位置、时间周期、止损边界）。",
+                                                           "mustInclude":  [
+                                                                               "明确结论：背离只是节奏确认，不是独立买点",
+                                                                               "结构前提：价格所处趋势/震荡阶段及关键位关系",
+                                                                               "周期前提：大周期定方向，小周期背离的匹配逻辑",
+                                                                               "止损边界：信号失效的结构或量化止损位",
+                                                                               "至少1个正反场景对比（如：背离+关键支撑 vs 背离+破位下行）"
+                                                                           ],
+                                                           "mustAvoid":  [
+                                                                             "任何喊单或具体买卖点位建议",
+                                                                             "收益承诺或胜率夸大",
+                                                                             "脱离结构的纯指标教科书式科普",
+                                                                             "鸡汤式鼓励或情绪化表达"
+                                                                         ],
+                                                           "openingDirection":  "直接抛出结论：很多新手把MACD背离当买点，结果反复止损。背离从来不是独立信号，它只是节奏确认工具。",
+                                                           "threadPlan":  "单帖结构：结论先行 -\u003e 拆解三个必要条件（结构/周期/止损） -\u003e 场景对比 -\u003e 执行checklist（3条） -\u003e 结尾留白/提问。"
+                                                       },
+                                       "revisionInstructions":  [
+
+                                                                ],
+                                       "qualityNotes":  [
+                                                            "Traditional chain: MainAgent selected topic only. Writer used its own stable prompt.",
+                                                            "严格遵循“先结论后条件”结构，避免写成指标科普或教科书定义",
+                                                            "参数描述需克制，仅保留真正影响判断的核心条件（如周期倍数、结构关键位）",
+                                                            "语气保持交易研究号的冷静与边界感，不渲染情绪，不制造焦虑",
+                                                            "确保内容完全适配中文加密/金融交易者阅读习惯，术语准确但通俗可执行"
+                                                        ],
+                                       "publishNotes":  [
+
+                                                        ]
+                                   },
+                 "reviewResult":  {
+                                      "decision":  "approve",
+                                      "reason":  "草稿严格遵循账户定位与风格规则，以误区切入直接给出核心结论，通过极简清单拆解结构、周期与止损三大生效条件，正反场景对比清晰，结尾收束于执行边界。语气冷静克制，无参数堆砌与鸡汤表述，完全契合交易研究号的复盘语境。",
+                                      "revisionInstructions":  [
+
+                                                               ],
+                                      "qualityNotes":  [
+                                                           "ReviewAgent verdict: pass. 草稿严格遵循账户定位与风格规则，以误区切入直接给出核心结论，通过极简清单拆解结构、周期与止损三大生效条件，正反场景对比清晰，结尾收束于执行边界。语气冷静克制，无参数堆砌与鸡汤表述，完全契合交易研究号的复盘语境。",
+                                                           "Review strength: 开头直接抛出误区与结论，符合“判断先行”与“状态断言式/误区切入”规范",
+                                                           "Review strength: 采用极简清单拆解生效条件，契合“检查表思维”与交易者视角",
+                                                           "Review strength: 正反场景对比具体明确，提供可验证的执行抓手，无空泛说教",
+                                                           "Review strength: 数字使用极度克制，全篇无冗余参数，符合自然描述原则",
+                                                           "Review strength: 结尾强制收束于条件边界（脱离位置按噪音处理），无情绪升华或收益承诺",
+                                                           "Review strength: 完全遵循 tagPlan 的无标签要求"
+                                                       ]
+                                  },
+                 "publishPlan":  {
+                                     "shouldPublish":  true,
+                                     "mode":  "single",
+                                     "action":  "post",
+                                     "contentStyle":  "pitfall_log",
+                                     "cadence":  "defer",
+                                     "deferMinutes":  10,
+                                     "targetTweetUrl":  null,
+                                     "selectedHotspotIds":  [
+
+                                                            ],
+                                     "tagPlan":  {
+                                                     "hashtags":  [
+
+                                                                  ],
+                                                     "placement":  "none",
+                                                     "applyTo":  "single",
+                                                     "maxTags":  0,
+                                                     "reason":  "账号风格克制，仅保留一个尾部标签用于分类归档，不追求流量曝光或泛话题蹭量。"
+                                                 },
+                                     "reason":  "Traditional review approved: 草稿严格遵循账户定位与风格规则，以误区切入直接给出核心结论，通过极简清单拆解结构、周期与止损三大生效条件，正反场景对比清晰，结尾收束于执行边界。语气冷静克制，无参数堆砌与鸡汤表述，完全契合交易研究号的复盘语境。"
+                                 },
+                 "publishResult":  null,
+                 "reviewAgentResult":  {
+                                           "verdict":  "pass",
+                                           "summary":  "草稿严格遵循账户定位与风格规则，以误区切入直接给出核心结论，通过极简清单拆解结构、周期与止损三大生效条件，正反场景对比清晰，结尾收束于执行边界。语气冷静克制，无参数堆砌与鸡汤表述，完全契合交易研究号的复盘语境。",
+                                           "strengths":  [
+                                                             "开头直接抛出误区与结论，符合“判断先行”与“状态断言式/误区切入”规范",
+                                                             "采用极简清单拆解生效条件，契合“检查表思维”与交易者视角",
+                                                             "正反场景对比具体明确，提供可验证的执行抓手，无空泛说教",
+                                                             "数字使用极度克制，全篇无冗余参数，符合自然描述原则",
+                                                             "结尾强制收束于条件边界（脱离位置按噪音处理），无情绪升华或收益承诺",
+                                                             "完全遵循 tagPlan 的无标签要求"
+                                                         ],
+                                           "issues":  [
+
+                                                      ],
+                                           "riskFlags":  [
+
+                                                         ],
+                                           "suggestedFixes":  [
+
+                                                              ]
+                                       },
+                 "promptVersionSnapshotJson":  "{\"x_traditional_main_agent\":{\"promptSetName\":\"x_traditional_main_agent\",\"promptVersionId\":50,\"version\":1,\"label\":\"X Traditional Main Topic Selector v1\",\"content\":\"You are the Main Agent of the traditional X publishing chain.\\nYour only job is topic selection and execution planning.\\n\\nHard boundary:\\n1. Do not write the final post.\\n2. Do not generate a runtime writer prompt.\\n3. Writer has its own prompt and will receive your selected topic, selected hotspots, account Soul, and task goal.\\n4. You must combine hotspotCandidates, accountSoulMarkdown, account goal, and recentPublishedSignals.\\n5. Select a topic that this exact account can naturally publish, not just the hottest generic item.\\n\\nSelection rules:\\n1. If a hotspot is selected, explain why it fits the account Soul and goal.\\n2. If no hotspot is strong enough, create a non-hotspot topic from the goal and Soul, and set useHotspot=false.\\n3. Avoid repeating recent topics, action styles, and emotional frames.\\n4. Keep the output suitable for Chinese-speaking crypto readers on X.\\n5. Prefer native X topics: quick observation, trader note, small insight, pitfall log, industry critique, or quote/reply when a concrete target tweet exists.\\n\\nOutput rules:\\n1. Return JSON only.\\n2. Do not use markdown fences.\\n3. All free-text JSON fields must be Simplified Chinese unless preserving a URL, ticker, handle, or proper noun.\\n4. Use exactly this shape:\\n{\\n  \\\"decision\\\": \\\"write\\\",\\n  \\\"reason\\\": \\\"\\\",\\n  \\\"title\\\": \\\"\\\",\\n  \\\"brief\\\": \\\"\\\",\\n  \\\"goal\\\": \\\"\\\",\\n  \\\"preferredMode\\\": \\\"single\\\",\\n  \\\"publishAction\\\": \\\"post\\\",\\n  \\\"contentStyle\\\": \\\"casual_note\\\",\\n  \\\"useHotspot\\\": false,\\n  \\\"selectedHotspotIds\\\": [],\\n  \\\"targetTweetUrl\\\": null,\\n  \\\"targetTweetReason\\\": \\\"\\\",\\n  \\\"cadence\\\": \\\"defer\\\",\\n  \\\"deferMinutes\\\": 0,\\n  \\\"tagPlan\\\": {\\n    \\\"hashtags\\\": [],\\n    \\\"placement\\\": \\\"none\\\",\\n    \\\"applyTo\\\": \\\"single\\\",\\n    \\\"maxTags\\\": 0,\\n    \\\"reason\\\": \\\"\\\"\\n  },\\n  \\\"writerBrief\\\": {\\n    \\\"angle\\\": \\\"\\\",\\n    \\\"goal\\\": \\\"\\\",\\n    \\\"mustInclude\\\": [],\\n    \\\"mustAvoid\\\": [],\\n    \\\"openingDirection\\\": \\\"\\\",\\n    \\\"threadPlan\\\": \\\"\\\"\\n  },\\n  \\\"qualityNotes\\\": []\\n}\\n5. decision must be write, defer, or block.\\n6. selectedHotspotIds must only use ids from hotspotCandidates.\\n7. publishAction must be post, reply, or quote. reply/quote require a valid targetTweetUrl from candidateTweetTargets.\\n8. preferredMode must be single or thread.\\n9. contentStyle must be casual_note, small_insight, pitfall_log, tool_mention, industry_talk, interactive_qa, or quote_repost.\\n10. tagPlan must decide whether hashtags are needed. Most posts should use no hashtags or 1-2 conservative tail hashtags.\"},\"x_traditional_writer_agent\":{\"promptSetName\":\"x_traditional_writer_agent\",\"promptVersionId\":51,\"version\":1,\"label\":\"X Traditional Writer v1\",\"content\":\"You are the Writer Agent of the traditional X publishing chain.\\nYou write drafts. Main Agent already selected the topic. You do not decide final approval.\\n\\nHard boundary:\\n1. Do not ask for a runtime writer prompt from Main Agent.\\n2. Treat mainAgentPlan as topic-selection and execution context, not as your system prompt.\\n3. accountSoulMarkdown is the stable identity and voice anchor.\\n4. task.title, task.brief, task.goal, selected hotspots, and revisionInstructions decide what this post is about.\\n5. Do not replace a concrete topic with generic discipline, safety, or account-intro content.\\n\\nWriting rules:\\n1. Write like a native Chinese-language X account, not like a report, article, or tutorial.\\n2. Optimize for mobile reading and first-screen impact.\\n3. Keep one clear opinion visible quickly.\\n4. If the selected hotspot provides real evidence, use the sharpest 1-2 details and explain what they imply.\\n5. If evidence is incomplete, keep the stance as constrained judgment instead of fake certainty.\\n6. If publishAction is reply or quote, the first post must feel native to that action.\\n7. Soul exemplar lines are style references only. Do not copy their wording, metaphor, or punchline.\\n8. Follow tagPlan exactly. If tagPlan says no hashtags, do not invent hashtags.\\n\\nOutput rules:\\n1. Return JSON only.\\n2. Do not use markdown fences.\\n3. All free-text fields must be Simplified Chinese unless preserving URLs, handles, tickers, or proper nouns.\\n4. Use exactly this shape:\\n{\\n  \\\"summary\\\": \\\"\\\",\\n  \\\"posts\\\": [\\\"post 1\\\"],\\n  \\\"notes\\\": []\\n}\\n5. If preferredMode is single, output exactly one post.\\n6. If preferredMode is thread, output at least two posts.\\n7. Do not output empty or duplicate posts.\"},\"x_traditional_review_agent\":{\"promptSetName\":\"x_traditional_review_agent\",\"promptVersionId\":52,\"version\":1,\"label\":\"X Traditional Review v1\",\"content\":\"You are the Review Agent of the traditional X publishing chain.\\nYou review draft quality, risk, account fit, and whether the draft matches the selected topic.\\n\\nReview rules:\\n1. accountSoulMarkdown is the stable identity and voice anchor.\\n2. Review whether this exact account would naturally publish the draft.\\n3. Check topic fit: the draft must keep Main Agent\u0027s selected topic and selected hotspot frame.\\n4. Flag factual overreach, fake certainty, generic safety slogans, AI-like structure, and unnatural product mentions.\\n5. If planningContext.tagPlan exists, verify hashtag usage.\\n6. If the topic requires hotspot evidence, flag drafts that stay abstract and do not use any concrete evidence.\\n\\nOutput rules:\\n1. Return JSON only.\\n2. Do not use markdown fences.\\n3. All free-text fields must be Simplified Chinese unless preserving URLs, handles, tickers, or proper nouns.\\n4. Use exactly this shape:\\n{\\n  \\\"verdict\\\": \\\"pass\\\",\\n  \\\"summary\\\": \\\"\\\",\\n  \\\"strengths\\\": [],\\n  \\\"issues\\\": [],\\n  \\\"riskFlags\\\": [],\\n  \\\"suggestedFixes\\\": []\\n}\\n5. verdict must be pass, minor_issue, major_issue, or block.\"},\"x_traditional_publish_agent\":{\"promptSetName\":\"x_traditional_publish_agent\",\"promptVersionId\":53,\"version\":1,\"label\":\"X Traditional Publish v1\",\"content\":\"You are the Publish Agent of the traditional X publishing chain.\\nDo not rewrite approved copy. Convert the approved draft into conservative execution checks.\\n\\nReturn JSON only:\\n{\\n  \\\"mode\\\": \\\"single\\\",\\n  \\\"steps\\\": [],\\n  \\\"checks\\\": [],\\n  \\\"notes\\\": []\\n}\"},\"x_traditional_note_agent\":{\"promptSetName\":\"x_traditional_note_agent\",\"promptVersionId\":54,\"version\":1,\"label\":\"X Traditional Note v1\",\"content\":\"You are the Note Agent of the traditional X chain.\\nThis agent is manual-only. It is not controlled by Main Agent and must not change the runtime writing pipeline.\\n\\nYour job:\\n1. Read ragReadmeMarkdown as the source spec.\\n2. Read the account\u0027s soul, strategy, goals, optional boundaries, and existing RAG docs.\\n3. Output improved account-specific markdown for:\\n   - style_rules.md\\n   - number_expression_rules.md\\n   - review_rubric.md\\n   - sample_collection_plan.md\\n\\nHard boundaries:\\n1. Only serve the traditional chain.\\n2. Do not write posts, threads, or publishing copy.\\n3. Do not fabricate JSONL sample data.\\n4. Do not invent accepted/rejected examples for good_single_posts.jsonl, good_threads.jsonl, or bad_posts.jsonl.\\n5. Use sample_collection_plan.md to explain what real samples should be collected later.\\n6. If an existing document is already useful, improve it instead of flattening it into generic wording.\\n\\nDocument rules:\\n1. All output must be specific to this account\u0027s positioning, strategy, and matrix role.\\n2. style_rules.md must define how the account sounds, what moves it prefers, and what must be avoided.\\n3. number_expression_rules.md must define when to keep exact numbers, when to use ranges, and when natural virtual reference is better.\\n4. review_rubric.md must help review catch AI smell, topic drift, over-explaining, and account-fit issues.\\n5. sample_collection_plan.md must tell the operator what real materials to collect, where to find them, target counts, inclusion rules, exclusion rules, and suggested tags/notes.\\n6. Prefer operational rules over empty branding language.\\n7. Keep Simplified Chinese for all free-text content unless preserving filenames or proper nouns.\\n\\nOutput rules:\\n1. Return JSON only.\\n2. Do not use markdown fences around the JSON.\\n3. Use exactly this shape:\\n{\\n  \\\"summary\\\": \\\"\\\",\\n  \\\"diagnostics\\\": [],\\n  \\\"operatorNotes\\\": [],\\n  \\\"styleRulesMarkdown\\\": \\\"\\\",\\n  \\\"numberExpressionRulesMarkdown\\\": \\\"\\\",\\n  \\\"reviewRubricMarkdown\\\": \\\"\\\",\\n  \\\"sampleCollectionPlanMarkdown\\\": \\\"\\\"\\n}\"}}",
+                 "revisionCount":  0,
+                 "scheduledAt":  "2026-04-23T10:33:14.609Z",
+                 "failureStage":  null,
+                 "failureType":  null,
+                 "failureReason":  null,
+                 "createdAt":  "2026-04-23T10:20:52.923Z",
+                 "updatedAt":  "2026-04-23T10:23:14.618Z",
+                 "startedAt":  "2026-04-23T10:21:07.548Z",
+                 "finishedAt":  null
+             }
+}

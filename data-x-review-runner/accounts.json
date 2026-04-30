@@ -1,0 +1,23 @@
+[
+  {
+    "id": "acct-ready",
+    "name": "Ready Account",
+    "handle": "ready_account",
+    "persona": "QA",
+    "targetAudience": "internal",
+    "styleGuide": "direct",
+    "learningTargets": [],
+    "manualNotes": "",
+    "profileDir": "h:/claw/data-x-review-runner/profiles/ready",
+    "proxyUrl": null,
+    "status": "active",
+    "accessToken": null,
+    "authStatus": "ready",
+    "authStatusReason": null,
+    "authCheckedAt": "2026-04-04T10:09:40.552Z",
+    "lastResearchAt": "2026-04-04T10:09:40.532Z",
+    "lastPublishedAt": "2026-04-04T10:09:40.552Z",
+    "createdAt": "2026-04-04T10:09:40.532Z",
+    "updatedAt": "2026-04-04T10:09:40.561Z"
+  }
+]

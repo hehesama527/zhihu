@@ -20,6 +20,11 @@ type TypeInput = {
   delay?: number;
 };
 
+type RichTextInput = {
+  text: string;
+  html: string;
+};
+
 type PressInput = {
   key: string;
 };
@@ -66,6 +71,12 @@ export class BrowserSkillService {
 
   async pasteText(context: BrowserSkillContext, input: TypeInput) {
     return this.runSkill(context, "paste_text", { length: input.text.length }, () => this.runtime.pasteText(context, input));
+  }
+
+  async pasteRichText(context: BrowserSkillContext, input: RichTextInput) {
+    return this.runSkill(context, "paste_rich_text", { textLength: input.text.length, htmlLength: input.html.length }, () =>
+      this.runtime.pasteRichText(context, input)
+    );
   }
 
   async type(context: BrowserSkillContext, input: TypeInput) {

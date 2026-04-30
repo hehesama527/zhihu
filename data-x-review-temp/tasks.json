@@ -1,0 +1,29 @@
+[
+  {
+    "id": "aca9203a-57d8-4cee-ae02-e1f5b602410c",
+    "accountId": "f34a7383-a7eb-490b-8d8b-7d4083741f60",
+    "title": "Smoke Task",
+    "brief": "smoke brief",
+    "goal": "smoke",
+    "preferredMode": "auto",
+    "forceResearch": false,
+    "status": "planned",
+    "currentStage": "planned",
+    "researchVersion": null,
+    "researchMarkdownSnapshot": null,
+    "draftPack": null,
+    "reviewResult": null,
+    "publishPlan": null,
+    "publishResult": null,
+    "revisionCount": 0,
+    "researchCount": 0,
+    "scheduledAt": null,
+    "failureStage": null,
+    "failureType": null,
+    "failureReason": null,
+    "createdAt": "2026-04-04T09:42:53.197Z",
+    "updatedAt": "2026-04-04T09:42:53.197Z",
+    "startedAt": null,
+    "finishedAt": null
+  }
+]

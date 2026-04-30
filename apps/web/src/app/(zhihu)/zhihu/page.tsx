@@ -1,0 +1,291 @@
+import Link from "next/link";
+import { AccountSwitcher } from "../../../components/account-switcher";
+import { StatusChip } from "../../../components/status-chip";
+import { WorkerPanel } from "../../../components/worker-panel";
+import { getAccounts, getDashboardSummaryForAccount } from "../../../lib/api";
+
+type DashboardPageProps = {
+  searchParams?: Promise<{
+    accountId?: string;
+  }>;
+};
+
+export default async function DashboardPage({ searchParams }: DashboardPageProps) {
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const selectedAccountId = parseAccountId(resolvedSearchParams?.accountId);
+  const [summary, accounts] = await Promise.all([getDashboardSummaryForAccount(selectedAccountId), getAccounts()]);
+
+  return (
+    <div className="stack">
+      <section className="page-header">
+        <div>
+          <h2>系统总览</h2>
+          <p className="muted">先看矩阵全局，再切到当前账号视图处理恢复、发文和人工干预。</p>
+        </div>
+      </section>
+
+      <AccountSwitcher accounts={accounts} selectedAccountId={summary.account?.id ?? selectedAccountId} basePath="/zhihu" />
+
+      <section className="grid grid--four">
+        <article className="card">
+          <p className="muted">累计任务</p>
+          <div className="metric-value">{summary.metrics.totalJobs}</div>
+        </article>
+        <article className="card">
+          <p className="muted">成功发布</p>
+          <div className="metric-value">{summary.metrics.publishedJobs}</div>
+        </article>
+        <article className="card">
+          <p className="muted">待发布</p>
+          <div className="metric-value">{summary.metrics.readyToPublishJobs}</div>
+        </article>
+        <article className="card">
+          <p className="muted">登录阻塞</p>
+          <div className="metric-value">{summary.metrics.manualLoginJobs}</div>
+        </article>
+      </section>
+
+      <section className="grid grid--two">
+        <article className="card">
+          <div className="card-header">
+            <div>
+              <h3>今日排期</h3>
+              <p className="muted">工作日按账号各自生成 3 到 4 个发布时间，范围固定在 08:00 到 20:00。</p>
+            </div>
+            <Link href="/zhihu/schedule" className="button button--ghost">
+              查看完整排期
+            </Link>
+          </div>
+
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>账号</th>
+                  <th>时间</th>
+                  <th>状态</th>
+                  <th>任务</th>
+                </tr>
+              </thead>
+              <tbody>
+                {summary.todaySchedule.length ? (
+                  summary.todaySchedule.map((slot) => (
+                    <tr key={slot.id}>
+                      <td>{slot.accountName ?? `账号 #${slot.accountId ?? "-"}`}</td>
+                      <td>{new Date(slot.scheduledAt).toLocaleString("zh-CN")}</td>
+                      <td>
+                        <StatusChip status={slot.jobDisplayStatus ?? slot.status} />
+                      </td>
+                      <td>
+                        {slot.publishJobId ? (
+                          <Link href={`/zhihu/jobs/${slot.publishJobId}`}>{slot.title ?? `任务 #${slot.publishJobId}`}</Link>
+                        ) : (
+                          "待分配"
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={4}>今天还没有排期。</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article className="card">
+          <div className="card-header">
+            <div>
+              <h3>当前账号视图</h3>
+              <p className="muted">系统优先复用已保存的登录态，只有检测到登录失效时才需要人工介入。</p>
+            </div>
+            <Link href={summary.account ? `/zhihu/account?accountId=${summary.account.id}` : "/zhihu/account"} className="button button--ghost">
+              去恢复页
+            </Link>
+          </div>
+
+          {summary.account ? (
+            <div className="stack">
+              <div className="inline-row">
+                <div>
+                  <p>{summary.account.name}</p>
+                  <p className="muted">知乎账号：{summary.account.zhihuUserName ?? "未命名"}</p>
+                </div>
+                <StatusChip status={summary.account.status} />
+              </div>
+              <p className="muted">最近登录检查：{formatTime(summary.account.lastLoginCheckAt)}</p>
+              <p className="muted">最近发布时间：{formatTime(summary.account.lastPublishAt)}</p>
+              <p className="muted">阻塞任务数：{summary.account.blockedJobs.length}</p>
+              <p className="muted">恢复原因：{summary.account.recoveryReason ?? "暂无"}</p>
+            </div>
+          ) : (
+            <p className="muted">还没有账号。</p>
+          )}
+        </article>
+      </section>
+
+      <WorkerPanel accountId={summary.account?.id ?? null} />
+
+      <section className="grid grid--two">
+        <article className="card">
+          <div className="card-header">
+            <div>
+              <h3>最近任务</h3>
+              <p className="muted">查看发布状态、失败分类和详情入口。</p>
+            </div>
+            <Link href="/zhihu/publish-jobs" className="button button--ghost">
+              查看全部发布任务
+            </Link>
+          </div>
+
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>任务</th>
+                  <th>展示状态</th>
+                  <th>失败信息</th>
+                </tr>
+              </thead>
+              <tbody>
+                {summary.recentJobs.length ? (
+                  summary.recentJobs.slice(0, 8).map((job) => (
+                    <tr key={job.id}>
+                      <td>
+                        <div className="stack stack--tight">
+                          <Link href={`/zhihu/jobs/${job.id}`}>{job.title ?? `任务 #${job.id}`}</Link>
+                          <span className="muted">{job.questionTitle ?? "题目待绑定"}</span>
+                          <span className="muted">{formatTime(job.scheduledAt)}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <StatusChip status={job.displayStatus} />
+                      </td>
+                      <td>
+                        <div className="stack stack--tight">
+                          <span>{formatFailureType(job.latestFailureType ?? job.lastErrorType)}</span>
+                          <span className="muted">{job.failureReason ?? "暂无失败原因"}</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={3}>还没有任务数据。</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article className="card">
+          <div className="card-header">
+            <div>
+              <h3>最近题目</h3>
+              <p className="muted">查看题目优先级、有效性状态和当前流转结果。</p>
+            </div>
+            <Link href="/zhihu/topics" className="button button--ghost">
+              查看选题 / 草稿
+            </Link>
+          </div>
+
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>题目</th>
+                  <th>优先级</th>
+                  <th>有效性</th>
+                </tr>
+              </thead>
+              <tbody>
+                {summary.recentTopics.length ? (
+                  summary.recentTopics.map((topic) => (
+                    <tr key={topic.id}>
+                      <td>
+                        <div className="stack stack--tight">
+                          <span>{topic.questionTitle}</span>
+                          <span className="muted">{formatTopicSource(topic.sourceType)}</span>
+                        </div>
+                      </td>
+                      <td>{topic.priority ?? "-"}</td>
+                      <td>{formatValidity(topic.validityStatus, topic.validityReason)}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={3}>还没有题目数据。</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+    </div>
+  );
+}
+
+function formatTime(value: string | null) {
+  return value ? new Date(value).toLocaleString("zh-CN") : "暂无";
+}
+
+function parseAccountId(value?: string) {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function formatValidity(status: string, reason: string | null) {
+  if (status === "valid") {
+    return "有效";
+  }
+
+  if (status === "invalid") {
+    return reason ?? "无效";
+  }
+
+  return "待校验";
+}
+
+function formatFailureType(value: string | null) {
+  const map: Record<string, string> = {
+    auth_required: "需要认证",
+    login_required: "需要登录",
+    session_expired: "会话失效",
+    account_identity_mismatch: "账号身份不匹配",
+    challenge_required: "需要验证",
+    duplicate_block: "重复内容拦截",
+    editor_not_ready: "编辑器未就绪",
+    submit_not_ready: "提交按钮未就绪",
+    network_or_page_error: "网络或页面异常",
+    publish_uncertain: "发布结果待确认",
+    content_risk_block: "内容风险拦截",
+    topic_invalid: "题目无效",
+    review_block: "审核拦截",
+    llm_connection_error: "模型连接异常",
+    unknown_failure: "未知失败"
+  };
+
+  return value ? map[value] ?? value : "-";
+}
+
+function formatTopicSource(value: string | null) {
+  const map: Record<string, string> = {
+    manual: "人工录入",
+    hot: "热点发现",
+    search: "搜索发现",
+    related: "关联扩展",
+    history: "历史复盘",
+    competitor: "对标账号",
+    research: "调研补充"
+  };
+
+  return value ? map[value] ?? value : "暂无来源";
+}

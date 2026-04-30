@@ -16,6 +16,12 @@
       ],
       "@zhihu-mvp/core": [
         "packages/core/src/index.ts"
+      ],
+      "@zhihu-mvp/x-core": [
+        "packages/x-core/src/index.ts"
+      ],
+      "@zhihu-mvp/x-traditional-core": [
+        "packages/x-traditional-core/src/index.ts"
       ]
     }
   }

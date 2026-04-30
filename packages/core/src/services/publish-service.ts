@@ -1,7 +1,7 @@
 import type { FailureType, PromptSnapshotMap, PublishStepAction, PublishStepPlan } from "@zhihu-mvp/shared";
 import { normalizeZhihuQuestionUrl } from "../utils/zhihu-url.js";
 import { LlmService } from "./llm-service.js";
-import { BrowserSkillService, type PageSnapshot } from "./browser-skill-service.js";
+import { BrowserSkillService, type BrowserSkillContext, type PageSnapshot } from "./browser-skill-service.js";
 import { SessionService } from "./session-service.js";
 
 const EDITOR_SELECTORS = [
@@ -58,6 +58,24 @@ type ExistingDraftComparison = {
   reason: string;
 };
 
+type AnswerTextSegment = {
+  text: string;
+  bold: boolean;
+};
+
+type ZhihuRichTextPayload = {
+  plainText: string;
+  html: string;
+  boldSignals: string[];
+};
+
+type EditorFormatComparison = {
+  decision: "MATCHED" | "NOT_REQUIRED" | "MISMATCH";
+  expectedBoldSignalCount: number;
+  matchedBoldSignals: string[];
+  reason: string;
+};
+
 export type PublishResumeAnchor = {
   stage: string;
   currentUrl?: string | null;
@@ -102,6 +120,7 @@ export class PublishService {
       traceGroupId: input.traceGroupId,
       agentName: "publish_agent"
     } as const;
+    const richTextPayload = buildZhihuRichTextPayload(input.content);
 
     await this.sessionService.ensureLoggedIn({
       sessionKey: input.sessionKey,
@@ -172,7 +191,7 @@ export class PublishService {
         traceBase,
         snapshot: openPlanState.snapshot,
         plan: openPlan,
-        content: input.content,
+        content: richTextPayload.plainText,
         promptSnapshot: input.promptSnapshot,
         signal: existingAnswerSignal
       });
@@ -205,7 +224,7 @@ export class PublishService {
         stage: "publish_verify",
         currentUrl: openPlanState.snapshot.url,
         snapshot: openPlanState.snapshot,
-        content: input.content,
+        content: richTextPayload.plainText,
         promptSnapshot: input.promptSnapshot,
         screenshotLabel: `publish-open-${input.publishJobId}`
       });
@@ -317,14 +336,12 @@ export class PublishService {
 
     await this.focusEditorOrThrow(traceBase, editorSnapshot, editorPlan);
 
-    await this.browserSkillService.pasteText(
+    await this.pasteAnswerContent(
       {
         ...traceBase,
         stage: "publishing"
       },
-      {
-        text: input.content
-      }
+      richTextPayload
     );
 
     await this.browserSkillService.wait(
@@ -337,12 +354,48 @@ export class PublishService {
       }
     );
 
+    const afterPasteSnapshot = await this.browserSkillService.snapshot({
+      ...traceBase,
+      stage: "publishing"
+    });
+    const editorComparison = compareExistingDraftToExpected(afterPasteSnapshot, richTextPayload.plainText);
+    if (editorComparison.decision !== "MATCHED") {
+      throw new PublishFlowError(
+        "editor_not_ready",
+        `编辑器内容未完整写入：${editorComparison.reason}`,
+        afterPasteSnapshot.url,
+        {
+          snapshot: afterPasteSnapshot,
+          editorComparison,
+          resumeAnchor: {
+            stage: "publishing",
+            currentUrl: afterPasteSnapshot.url
+          }
+        }
+      );
+    }
+
+    const editorFormatComparison = compareEditorRichFormatting(afterPasteSnapshot, richTextPayload.boldSignals);
+    if (editorFormatComparison.decision === "MISMATCH") {
+      throw new PublishFlowError(
+        "editor_not_ready",
+        `编辑器富文本格式未生效：${editorFormatComparison.reason}`,
+        afterPasteSnapshot.url,
+        {
+          snapshot: afterPasteSnapshot,
+          editorComparison,
+          editorFormatComparison,
+          resumeAnchor: {
+            stage: "publishing",
+            currentUrl: afterPasteSnapshot.url
+          }
+        }
+      );
+    }
+
     const rawSubmitSnapshot = await this.ensureSubmitSurface({
       traceBase,
-      snapshot: await this.browserSkillService.snapshot({
-        ...traceBase,
-        stage: "publishing"
-      }),
+      snapshot: afterPasteSnapshot,
       promptSnapshot: input.promptSnapshot
     });
     const submitPlanState = await this.resolvePlanForStage({
@@ -369,7 +422,7 @@ export class PublishService {
           }
         );
 
-        return this.collectVerifiedPublishResult(traceBase, input.publishJobId, input.content, input.promptSnapshot);
+        return this.collectVerifiedPublishResult(traceBase, input.publishJobId, richTextPayload.plainText, input.promptSnapshot);
       }
 
       throw new PublishFlowError("submit_not_ready", submitPlan.reason || "当前页面还没有出现可提交的发布按钮。", submitPlanState.snapshot.url, {
@@ -411,7 +464,7 @@ export class PublishService {
           }
         );
 
-        return this.collectVerifiedPublishResult(traceBase, input.publishJobId, input.content, input.promptSnapshot);
+        return this.collectVerifiedPublishResult(traceBase, input.publishJobId, richTextPayload.plainText, input.promptSnapshot);
       }
 
       throw new PublishFlowError("submit_not_ready", "没有找到“发布回答”按钮。", submitPlanState.snapshot.url, {
@@ -434,7 +487,14 @@ export class PublishService {
       }
     );
 
-    return this.collectVerifiedPublishResult(traceBase, input.publishJobId, input.content, input.promptSnapshot);
+    return this.collectVerifiedPublishResult(traceBase, input.publishJobId, richTextPayload.plainText, input.promptSnapshot);
+  }
+
+  private async pasteAnswerContent(context: BrowserSkillContext, payload: ZhihuRichTextPayload) {
+    await this.browserSkillService.pasteRichText(context, {
+      text: payload.plainText,
+      html: payload.html
+    });
   }
 
   private async collectVerifiedPublishResult(
@@ -870,7 +930,7 @@ export class PublishService {
       };
     }
 
-    if (decision === "SUCCESS" && matchedSignals.length === 0 && !hasPublishedSemantic) {
+    if (decision === "SUCCESS" && matchedSignals.length === 0) {
       return {
         decision: "UNCERTAIN" as const,
         confidence: "low" as const,
@@ -1384,7 +1444,7 @@ function getExistingAnswerSignal(plan: PublishStepPlan): "view" | "edit" | null 
 }
 
 function buildPublishContentSignals(content: string): PublishContentSignals {
-  const trimmed = content.trim();
+  const trimmed = toZhihuDisplayText(content).trim();
   const paragraphs = trimmed
     .split(/\n+/)
     .map((item) => item.trim())
@@ -1408,6 +1468,125 @@ function buildPublishContentSignals(content: string): PublishContentSignals {
     expectedExcerpt: trimmed.slice(0, 120),
     expectedSignals
   };
+}
+
+function buildZhihuRichTextPayload(content: string): ZhihuRichTextPayload {
+  return {
+    plainText: toZhihuDisplayText(content),
+    html: renderZhihuHtml(content),
+    boldSignals: buildExpectedBoldSignals(content)
+  };
+}
+
+function toZhihuDisplayText(content: string) {
+  return stripMarkdownBoldMarkers(content)
+    .replace(/\r\n/g, "\n")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/^\s{0,3}>\s?/gm, "")
+    .replace(/^\s{0,3}[-*+]\s+/gm, "")
+    .replace(/^\s{0,3}\d+[.)]\s+/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function renderZhihuHtml(content: string) {
+  const blocks = content
+    .replace(/\r\n/g, "\n")
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+
+  const html = blocks.map((block) => renderZhihuHtmlBlock(block)).join("");
+  return `<meta charset="utf-8">${html}`;
+}
+
+function renderZhihuHtmlBlock(block: string) {
+  const lines = block
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim());
+
+  if (lines.length === 0) {
+    return "";
+  }
+
+  if (lines.length === 1) {
+    const headingMatch = lines[0].match(/^\s{0,3}(#{1,6})\s+(.+)$/);
+    if (headingMatch) {
+      const level = Math.min(3, Math.max(2, headingMatch[1].length + 1));
+      return `<h${level}>${renderInlineZhihuHtml(headingMatch[2])}</h${level}>`;
+    }
+  }
+
+  if (lines.every((line) => /^\s{0,3}[-*+]\s+/.test(line))) {
+    return `<ul>${lines.map((line) => `<li>${renderInlineZhihuHtml(line.replace(/^\s{0,3}[-*+]\s+/, ""))}</li>`).join("")}</ul>`;
+  }
+
+  if (lines.every((line) => /^\s{0,3}\d+[.)]\s+/.test(line))) {
+    return `<ol>${lines.map((line) => `<li>${renderInlineZhihuHtml(line.replace(/^\s{0,3}\d+[.)]\s+/, ""))}</li>`).join("")}</ol>`;
+  }
+
+  return `<p>${lines.map((line) => renderInlineZhihuHtml(line)).join("<br>")}</p>`;
+}
+
+function renderInlineZhihuHtml(content: string) {
+  return parseMarkdownBoldSegments(content)
+    .map((segment) => {
+      const escapedText = escapeHtml(segment.text);
+      return segment.bold ? `<strong>${escapedText}</strong>` : escapedText;
+    })
+    .join("");
+}
+
+function buildExpectedBoldSignals(content: string) {
+  return Array.from(
+    new Set(
+      parseMarkdownBoldSegments(content)
+        .filter((segment) => segment.bold)
+        .map((segment) => normalizeComparableText(segment.text))
+        .filter((segment) => segment.length >= 12)
+        .map((segment) => segment.slice(0, Math.min(segment.length, 36)))
+    )
+  );
+}
+
+function compareEditorRichFormatting(snapshot: PageSnapshot, boldSignals: string[]): EditorFormatComparison {
+  if (boldSignals.length === 0) {
+    return {
+      decision: "NOT_REQUIRED",
+      expectedBoldSignalCount: 0,
+      matchedBoldSignals: [],
+      reason: "正文没有需要加粗的重点片段。"
+    };
+  }
+
+  const boldTextPool = normalizeComparableText((snapshot.editorBoldTexts ?? []).join(""));
+  const matchedBoldSignals = boldSignals.filter((signal) => boldTextPool.includes(signal));
+
+  if (matchedBoldSignals.length === boldSignals.length) {
+    return {
+      decision: "MATCHED",
+      expectedBoldSignalCount: boldSignals.length,
+      matchedBoldSignals,
+      reason: `已命中 ${matchedBoldSignals.length}/${boldSignals.length} 个加粗片段。`
+    };
+  }
+
+  return {
+    decision: "MISMATCH",
+    expectedBoldSignalCount: boldSignals.length,
+    matchedBoldSignals,
+    reason: `只命中 ${matchedBoldSignals.length}/${boldSignals.length} 个加粗片段，疑似知乎没有接受 HTML 富文本。`
+  };
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function findMatchedExpectedSignals(snapshot: PageSnapshot, expectedSignals: string[]) {
@@ -1534,7 +1713,7 @@ function sanitizeSubmitTargets(targetTexts: string[]) {
 }
 
 function compareExistingDraftToExpected(snapshot: PageSnapshot, expectedContent: string): ExistingDraftComparison {
-  const expectedNormalized = normalizeComparableText(expectedContent);
+  const expectedNormalized = normalizeComparableText(toZhihuDisplayText(expectedContent));
   const expectedLength = expectedNormalized.length;
   const expectedSignals = buildPublishContentSignals(expectedContent).expectedSignals;
   const editorCandidate = snapshot.editorContent === null ? null : normalizeComparableText(snapshot.editorContent);
@@ -1616,6 +1795,70 @@ function compareExistingDraftToExpected(snapshot: PageSnapshot, expectedContent:
     matchedSignalCount,
     reason: `编辑器内容与待发布正文差异较大，长度差 ${lengthDelta} 字，重合度 ${(bestOverlapScore * 100).toFixed(1)}%。`
   };
+}
+
+function parseMarkdownBoldSegments(content: string): AnswerTextSegment[] {
+  const segments: AnswerTextSegment[] = [];
+  const boldPattern = /\*\*([\s\S]*?)\*\*/g;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = boldPattern.exec(content)) !== null) {
+    const fullMatch = match[0] ?? "";
+    const boldText = match[1] ?? "";
+
+    if (match.index > cursor) {
+      segments.push({
+        text: content.slice(cursor, match.index),
+        bold: false
+      });
+    }
+
+    if (boldText.trim()) {
+      segments.push({
+        text: boldText,
+        bold: true
+      });
+    } else {
+      segments.push({
+        text: fullMatch,
+        bold: false
+      });
+    }
+
+    cursor = match.index + fullMatch.length;
+  }
+
+  if (cursor < content.length) {
+    segments.push({
+      text: content.slice(cursor),
+      bold: false
+    });
+  }
+
+  return mergeAdjacentAnswerSegments(segments.length ? segments : [{ text: content, bold: false }]);
+}
+
+function stripMarkdownBoldMarkers(content: string) {
+  return parseMarkdownBoldSegments(content)
+    .map((segment) => segment.text)
+    .join("");
+}
+
+function mergeAdjacentAnswerSegments(segments: AnswerTextSegment[]) {
+  const merged: AnswerTextSegment[] = [];
+
+  for (const segment of segments) {
+    const last = merged.at(-1);
+    if (last && last.bold === segment.bold) {
+      last.text += segment.text;
+      continue;
+    }
+
+    merged.push({ ...segment });
+  }
+
+  return merged;
 }
 
 function computeOverlapScore(expected: string, actual: string) {

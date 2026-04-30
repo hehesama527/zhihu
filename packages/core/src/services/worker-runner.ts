@@ -1,4 +1,5 @@
 import type { FailureType, JobDetail, JobListItem, JobStage, PromptSnapshotMap, WorkerTickSummary } from "@zhihu-mvp/shared";
+import path from "node:path";
 import { AccountRepository } from "../repositories/account-repository.js";
 import { JobRepository } from "../repositories/job-repository.js";
 import { ScheduleRepository } from "../repositories/schedule-repository.js";
@@ -6,6 +7,7 @@ import { TopicRepository } from "../repositories/topic-repository.js";
 import { getElapsedMs, logDebugTiming } from "../utils/debug-timing.js";
 import { safeParseJson } from "../utils/json.js";
 import { hasManualLoginLock } from "../utils/manual-login-lock.js";
+import { AccountSoulService } from "./account-soul-service.js";
 import { FeishuNotificationService } from "./feishu-notification-service.js";
 import { FailureResolutionService } from "./failure-resolution-service.js";
 import { LlmService } from "./llm-service.js";
@@ -35,6 +37,8 @@ const HARVEST_SKIP_WINDOW_MINUTES = 30;
 const PUBLISH_ATTEMPT_TIMEOUT_MS = 180_000;
 
 export class WorkerRunner {
+  private readonly accountSoulService = new AccountSoulService();
+
   constructor(
     private readonly scheduleService: ScheduleService,
     private readonly scheduleRepository: ScheduleRepository,
@@ -62,19 +66,22 @@ export class WorkerRunner {
 
     const accountsById = new Map<number, WorkerAccount>(accounts.map((account) => [account.id, account]));
     const blockedAccountIds = new Set<number>();
+    const blockedRiskDomains = new Set<string>();
     const blockedMessages: string[] = [];
     const runnableAccounts: WorkerAccount[] = [];
 
     for (const account of accounts) {
       const manualLoginLocked = await hasManualLoginLock(account.id);
-      if (isLoginBlockedAccount(account) || manualLoginLocked) {
+      if (isLoginBlockedAccount(account) || manualLoginLocked || isCoolingDown(account)) {
         blockedAccountIds.add(account.id);
-        blockedMessages.push(
-          account.statusReason ??
-            (manualLoginLocked
-              ? `账号「${account.name}」正在等待人工登录完成。`
-              : `账号「${account.name}」需要先恢复登录态。`)
-        );
+        blockedRiskDomains.add(account.riskDomain);
+        blockedMessages.push(resolveAccountBlockMessage(account, { manualLoginLocked }));
+        continue;
+      }
+
+      if (blockedRiskDomains.has(account.riskDomain)) {
+        blockedAccountIds.add(account.id);
+        blockedMessages.push(buildRiskDomainBlockedMessage(account));
         continue;
       }
 
@@ -99,14 +106,20 @@ export class WorkerRunner {
       elapsedMs: getElapsedMs(tickStartedAt),
       dueJobs: dueJobs.map((job) => ({ id: job.id, status: job.status, scheduledAt: job.scheduledAt }))
     });
-    const processResult = await this.processDueJobs(dueJobs, accountsById, blockedAccountIds, blockedMessages);
+    const processResult = await this.processDueJobs(
+      dueJobs,
+      accountsById,
+      blockedAccountIds,
+      blockedRiskDomains,
+      blockedMessages
+    );
     logDebugTiming("worker.tick", "processed_due_jobs", {
       elapsedMs: getElapsedMs(tickStartedAt),
       processedJobs: processResult.processedJobs
     });
     const prepareResult = hasDuePublishJobs
       ? { preparedJobs: 0 }
-      : await this.prepareQueuedJobs(accountsById, blockedAccountIds, blockedMessages);
+      : await this.prepareQueuedJobs(accountsById, blockedAccountIds, blockedRiskDomains, blockedMessages);
     const blockedByLogin = blockedAccountIds.size > 0;
     logDebugTiming("worker.tick", "finished_prepare", {
       elapsedMs: getElapsedMs(tickStartedAt),
@@ -131,19 +144,25 @@ export class WorkerRunner {
 
     if (!hasImminentJobs && prepareResult.preparedJobs === 0) {
       for (const account of runnableAccounts) {
-        if (!account.profileDir || blockedAccountIds.has(account.id)) {
+        if (!account.profileDir || blockedAccountIds.has(account.id) || blockedRiskDomains.has(account.riskDomain)) {
+          if (!blockedAccountIds.has(account.id) && blockedRiskDomains.has(account.riskDomain)) {
+            blockedAccountIds.add(account.id);
+            blockedMessages.push(buildRiskDomainBlockedMessage(account));
+          }
           continue;
         }
 
         try {
           const harvestStartedAt = Date.now();
+          const soulContext = await this.accountSoulService.ensureSoulDocument(account);
           logDebugTiming("worker.tick", "harvest_start", {
             accountId: account.id
           });
           harvestedCandidates += await this.topicDiscoveryService.harvestCandidates({
             accountId: account.id,
             profileDir: account.profileDir,
-            accountContext: toAccountPromptContext(account)
+            accountContext: toAccountPromptContext(account),
+            accountSoulMarkdown: soulContext.markdown
           });
           logDebugTiming("worker.tick", "harvest_done", {
             accountId: account.id,
@@ -157,6 +176,7 @@ export class WorkerRunner {
               triggerStage: "topic_discovery"
             });
             blockedAccountIds.add(account.id);
+            blockedRiskDomains.add(account.riskDomain);
             blockedMessages.push(error.message);
             accountsById.set(account.id, {
               ...account,
@@ -214,16 +234,12 @@ export class WorkerRunner {
     }
 
     const manualLoginLocked = await hasManualLoginLock(account.id);
-    if (manualLoginLocked || isLoginBlockedAccount(account)) {
+    if (manualLoginLocked || isLoginBlockedAccount(account) || isCoolingDown(account)) {
       return {
         prepared: false,
         processed: false,
         blockedByLogin: true,
-        message:
-          account.statusReason ??
-          (manualLoginLocked
-            ? `账号「${account.name}」正在等待人工登录完成。`
-            : `账号「${account.name}」需要先恢复登录态。`),
+        message: resolveAccountBlockMessage(account, { manualLoginLocked }),
         job
       };
     }
@@ -305,6 +321,7 @@ export class WorkerRunner {
   private async fillScheduleSlots(account: WorkerAccount) {
     const startedAt = Date.now();
     let createdJobs = 0;
+    const soulDocument = await this.accountSoulService.ensureSoulDocument(account);
 
     while (true) {
       const slot = await this.scheduleService.getNextUnassignedSlot(account.id);
@@ -320,7 +337,9 @@ export class WorkerRunner {
       const jobId = await this.jobRepository.createQueuedJob({
         accountId: account.id,
         scheduledAt: slot.scheduledAt,
-        promptVersionSnapshotJson: promptSnapshotJson
+        promptVersionSnapshotJson: promptSnapshotJson,
+        soulVersion: soulDocument.version,
+        soulMarkdownSnapshot: soulDocument.markdown
       });
       await this.scheduleRepository.assignJobToSlot(slot.id, jobId);
       createdJobs += 1;
@@ -338,6 +357,7 @@ export class WorkerRunner {
   private async prepareQueuedJobs(
     accountsById: Map<number, WorkerAccount>,
     blockedAccountIds: Set<number>,
+    blockedRiskDomains: Set<string>,
     blockedMessages: string[]
   ): Promise<{ preparedJobs: number }> {
     const startedAt = Date.now();
@@ -353,7 +373,22 @@ export class WorkerRunner {
 
     for (const job of jobs) {
       const account = accountsById.get(job.accountId);
-      if (!account || blockedAccountIds.has(job.accountId) || isLoginBlockedAccount(account)) {
+      if (!account) {
+        continue;
+      }
+
+      if (blockedAccountIds.has(job.accountId) || blockedRiskDomains.has(account.riskDomain)) {
+        blockedAccountIds.add(job.accountId);
+        if (blockedRiskDomains.has(account.riskDomain)) {
+          blockedMessages.push(buildRiskDomainBlockedMessage(account));
+        }
+        continue;
+      }
+
+      if (isLoginBlockedAccount(account) || isCoolingDown(account)) {
+        blockedAccountIds.add(job.accountId);
+        blockedRiskDomains.add(account.riskDomain);
+        blockedMessages.push(resolveAccountBlockMessage(account));
         continue;
       }
 
@@ -363,6 +398,7 @@ export class WorkerRunner {
       }
       if (result.blockedByLogin) {
         blockedAccountIds.add(job.accountId);
+        blockedRiskDomains.add(account.riskDomain);
         blockedMessages.push(result.message ?? `账号 #${job.accountId} 需要人工登录恢复。`);
         accountsById.set(job.accountId, {
           ...account,
@@ -390,10 +426,12 @@ export class WorkerRunner {
         scheduledAt: job.scheduledAt
       });
       const promptContext = await this.ensurePromptSnapshot(job, account);
+      const soulContext = await this.ensureSoulSnapshot(job, account);
       const preparedDraft = await this.topicPipelineService.prepareNextPublishableDraft({
         publishJobId: job.id,
         promptSnapshot: promptContext.promptSnapshot,
         accountContext: toAccountPromptContext(account),
+        accountSoulMarkdown: soulContext.soulMarkdownSnapshot,
         onStage: async (stage) => {
           logDebugTiming("worker.prepareQueuedJobs", "job_stage", {
             jobId: job.id,
@@ -426,6 +464,26 @@ export class WorkerRunner {
           prepared: false,
           blockedByLogin: false,
           message: "当前没有可用选题，等待下一轮采题后重试。"
+        };
+      }
+
+      if (preparedDraft.kind === "blocked") {
+        await this.jobRepository.updateJobStatus(job.id, "needs_manual_review", {
+          currentStage: "needs_manual_review",
+          promptVersionSnapshotJson: promptContext.promptSnapshotJson,
+          failureReason: preparedDraft.reason,
+          lastErrorType: "review_block"
+        });
+        logDebugTiming("worker.prepareQueuedJobs", "job_needs_manual_review", {
+          jobId: job.id,
+          accountId: job.accountId,
+          reason: preparedDraft.reason,
+          elapsedMs: getElapsedMs(jobStartedAt)
+        });
+        return {
+          prepared: false,
+          blockedByLogin: false,
+          message: preparedDraft.reason
         };
       }
 
@@ -503,6 +561,7 @@ export class WorkerRunner {
     dueJobs: JobListItem[],
     accountsById: Map<number, WorkerAccount>,
     blockedAccountIds: Set<number>,
+    blockedRiskDomains: Set<string>,
     blockedMessages: string[]
   ): Promise<{ processedJobs: number }> {
     const startedAt = Date.now();
@@ -520,7 +579,24 @@ export class WorkerRunner {
         accountsById.get(job.accountId) ??
         (await this.accountRepository.getAccount(job.accountId)) ??
         null;
-      if (!account || isLoginBlockedAccount(account) || !account.profileDir) {
+      if (!account) {
+        continue;
+      }
+
+      if (!account.profileDir) {
+        continue;
+      }
+
+      if (blockedRiskDomains.has(account.riskDomain)) {
+        blockedAccountIds.add(job.accountId);
+        blockedMessages.push(buildRiskDomainBlockedMessage(account));
+        continue;
+      }
+
+      if (isLoginBlockedAccount(account) || isCoolingDown(account)) {
+        blockedAccountIds.add(job.accountId);
+        blockedRiskDomains.add(account.riskDomain);
+        blockedMessages.push(resolveAccountBlockMessage(account));
         continue;
       }
 
@@ -536,6 +612,7 @@ export class WorkerRunner {
 
       if (result.blockedByLogin) {
         blockedAccountIds.add(job.accountId);
+        blockedRiskDomains.add(account.riskDomain);
         blockedMessages.push(result.message ?? `账号 #${job.accountId} 需要人工登录恢复。`);
         accountsById.set(job.accountId, {
           ...account,
@@ -568,8 +645,14 @@ export class WorkerRunner {
     }
 
     const promptContext = await this.ensurePromptSnapshot(jobDetail, account);
+    const soulContext = await this.ensureSoulSnapshot(jobDetail, account);
     if (!jobDetail.questionUrl || !jobDetail.questionTitle || !resolveJobContent(jobDetail)) {
-      const repairedJobDetail = await this.tryRehydrateJobPayload(job.id, account, promptContext);
+      const repairedJobDetail = await this.tryRehydrateJobPayload(
+        job.id,
+        account,
+        promptContext,
+        soulContext.soulMarkdownSnapshot
+      );
       if (repairedJobDetail) {
         jobDetail = repairedJobDetail;
       }
@@ -593,6 +676,7 @@ export class WorkerRunner {
     let questionTitle = jobDetail.questionTitle;
     let questionUrl = jobDetail.questionUrl;
     let content = resolveJobContent(jobDetail);
+    const accountSoulMarkdown = soulContext.soulMarkdownSnapshot;
     if (!content) {
       if (!jobDetail.topicCardId || !jobDetail.reviewId) {
         await this.requeueJobForPreparation(
@@ -829,6 +913,7 @@ export class WorkerRunner {
             revisionFeedback: `${failure.message}；${resolution.reason}`,
             promptVersionSnapshotJson: promptContext.promptSnapshotJson,
             accountContext: toAccountPromptContext(account),
+            accountSoulMarkdown,
             onStage: async (stage) => {
               await this.jobRepository.updateJobStatus(job.id, stage, {
                 currentStage: stage,
@@ -877,7 +962,8 @@ export class WorkerRunner {
               slot?.id ?? null,
               promptContext.promptSnapshotJson,
               rewritten.reason,
-              toAccountPromptContext(account)
+              toAccountPromptContext(account),
+              accountSoulMarkdown
             );
             if (!replacementSucceeded) {
               await this.failJob(job.id, slot?.id ?? null, "duplicate_block", rewritten.reason, jobDetail.topicCardId);
@@ -925,7 +1011,8 @@ export class WorkerRunner {
             slot?.id ?? null,
             promptContext.promptSnapshotJson,
             failure.message,
-            toAccountPromptContext(account)
+            toAccountPromptContext(account),
+            accountSoulMarkdown
           );
           if (!replacementSucceeded) {
             await this.failJob(job.id, slot?.id ?? null, "duplicate_block", failure.message, jobDetail.topicCardId);
@@ -982,6 +1069,20 @@ export class WorkerRunner {
             promptVersionSnapshotJson: promptContext.promptSnapshotJson
           });
 
+          // Adaptive backoff: wait before retrying to avoid hammering
+          const backoffMs = calculateRetryBackoff(retryCount, failure.failureType);
+          if (backoffMs > 0) {
+            logExecutionContext({
+              jobId: job.id,
+              accountId: job.accountId,
+              stage: "retry_backoff",
+              traceId: traceGroupId,
+              attemptNo
+            });
+            console.log(`[Worker] Retry #${retryCount} backoff for ${Math.round(backoffMs / 1000)}s (failureType: ${failure.failureType})`);
+            await wait(backoffMs);
+          }
+
           if (resolution.action === "RESTART_BROWSER") {
             await this.publishService.restartSession({
               sessionKey,
@@ -1011,7 +1112,8 @@ export class WorkerRunner {
     slotId: number | null,
     promptSnapshotJson: string,
     reason: string,
-    accountContext?: AccountPromptContext | null
+    accountContext?: AccountPromptContext | null,
+    accountSoulMarkdown?: string | null
   ) {
     if (currentTopicCardId) {
       await this.topicRepository.markCandidateDuplicateByTopicCard(currentTopicCardId, reason);
@@ -1022,6 +1124,7 @@ export class WorkerRunner {
       publishJobId: jobId,
       promptSnapshot,
       accountContext,
+      accountSoulMarkdown,
       onStage: async (stage) => {
         await this.jobRepository.updateJobStatus(jobId, stage, {
           currentStage: stage,
@@ -1033,6 +1136,16 @@ export class WorkerRunner {
     });
 
     if (!replacement) {
+      return false;
+    }
+
+    if (replacement.kind === "blocked") {
+      await this.jobRepository.updateJobStatus(jobId, "needs_manual_review", {
+        currentStage: "needs_manual_review",
+        promptVersionSnapshotJson: promptSnapshotJson,
+        failureReason: replacement.reason,
+        lastErrorType: "review_block"
+      });
       return false;
     }
 
@@ -1315,6 +1428,7 @@ export class WorkerRunner {
   ) {
     const account = await this.accountRepository.getAccount(accountId);
     const targetJob = options?.jobId != null ? await this.jobRepository.getJobById(options.jobId) : null;
+    const cooldownHours = resolveRiskCooldownHours(options?.failureType);
     const triggerStage = resolveNotificationTriggerStage({
       resumeAnchorJson: options?.resumeAnchorJson ?? targetJob?.resumeAnchorJson ?? null,
       preferredStage: options?.triggerStage ?? targetJob?.currentStage ?? null,
@@ -1326,6 +1440,9 @@ export class WorkerRunner {
       finalUrl: targetJob?.finalUrl ?? null
     });
 
+    await this.accountRepository.markRiskDetected(accountId, {
+      cooldownHours
+    });
     await this.accountRepository.markManualLoginRequired(accountId, reason);
 
     const dueJobs = (await this.jobRepository.getDueJobs()).filter((job) => job.accountId === accountId);
@@ -1432,15 +1549,41 @@ export class WorkerRunner {
     };
   }
 
+  private async ensureSoulSnapshot(
+    job: Pick<JobListItem, "id" | "status" | "currentStage" | "soulVersion" | "soulMarkdownSnapshot">,
+    account: Pick<WorkerAccount, "id" | "name" | "zhihuUserName">
+  ) {
+    if (job.soulMarkdownSnapshot) {
+      return {
+        soulVersion: job.soulVersion ?? null,
+        soulMarkdownSnapshot: job.soulMarkdownSnapshot
+      };
+    }
+
+    const soulDocument = await this.accountSoulService.ensureSoulDocument(account);
+    await this.jobRepository.updateJobStatus(job.id, job.status, {
+      currentStage: job.currentStage ?? job.status,
+      soulVersion: soulDocument.version,
+      soulMarkdownSnapshot: soulDocument.markdown
+    });
+
+    return {
+      soulVersion: soulDocument.version,
+      soulMarkdownSnapshot: soulDocument.markdown
+    };
+  }
+
   private async tryRehydrateJobPayload(
     jobId: number,
     account: WorkerAccount,
-    promptContext: { promptSnapshotJson: string; promptSnapshot: PromptSnapshotMap }
+    promptContext: { promptSnapshotJson: string; promptSnapshot: PromptSnapshotMap },
+    accountSoulMarkdown?: string | null
   ) {
     const replacement = await this.topicPipelineService.prepareNextPublishableDraft({
       publishJobId: jobId,
       promptSnapshot: promptContext.promptSnapshot,
       accountContext: toAccountPromptContext(account),
+      accountSoulMarkdown,
       onStage: async (stage) => {
         await this.jobRepository.updateJobStatus(jobId, stage, {
           currentStage: stage,
@@ -1452,6 +1595,16 @@ export class WorkerRunner {
     });
 
     if (!replacement) {
+      return null;
+    }
+
+    if (replacement.kind === "blocked") {
+      await this.jobRepository.updateJobStatus(jobId, "needs_manual_review", {
+        currentStage: "needs_manual_review",
+        promptVersionSnapshotJson: promptContext.promptSnapshotJson,
+        failureReason: replacement.reason,
+        lastErrorType: "review_block"
+      });
       return null;
     }
 
@@ -1699,6 +1852,38 @@ function isLoginBlockedAccount(account: Pick<WorkerAccount, "status">) {
   return account.status === "manual_login_required" || account.status === "session_expired";
 }
 
+function isCoolingDown(account: Pick<WorkerAccount, "cooldownUntil">) {
+  if (!account.cooldownUntil) {
+    return false;
+  }
+
+  const timestamp = new Date(account.cooldownUntil).valueOf();
+  return Number.isFinite(timestamp) && timestamp > Date.now();
+}
+
+function resolveAccountBlockMessage(
+  account: Pick<WorkerAccount, "name" | "statusReason" | "status" | "cooldownUntil">,
+  options?: { manualLoginLocked?: boolean }
+) {
+  if (isCoolingDown(account)) {
+    return (
+      account.statusReason ??
+      `账号「${account.name}」处于风控冷却期，自动调度将暂停到 ${formatBlockedUntil(account.cooldownUntil)}。`
+    );
+  }
+
+  return (
+    account.statusReason ??
+    (options?.manualLoginLocked
+      ? `账号「${account.name}」正在等待人工登录完成。`
+      : `账号「${account.name}」需要先恢复登录态。`)
+  );
+}
+
+function buildRiskDomainBlockedMessage(account: Pick<WorkerAccount, "name" | "riskDomain">) {
+  return `账号「${account.name}」所在风险域「${account.riskDomain}」已有账号触发登录异常或冷却，本轮自动调度跳过。`;
+}
+
 function resolveTickAccountStatus(totalAccounts: number, blockedAccounts: number) {
   if (blockedAccounts <= 0) {
     return "active";
@@ -1719,10 +1904,32 @@ function buildBlockedSummary(totalAccounts: number, blockedAccounts: number, blo
   const firstMessage = Array.from(new Set(blockedMessages.filter(Boolean)))[0] ?? null;
   const prefix =
     blockedAccounts >= totalAccounts
-      ? `${blockedAccounts} 个账号当前需要人工登录恢复。`
-      : `${blockedAccounts} 个账号被登录状态阻塞，其余账号继续执行。`;
+      ? `${blockedAccounts} 个账号当前需要人工恢复或等待冷却。`
+      : `${blockedAccounts} 个账号被登录或风控状态阻塞，其余账号继续执行。`;
 
   return firstMessage ? `${prefix} ${firstMessage}` : prefix;
+}
+
+function resolveRiskCooldownHours(failureType?: FailureType) {
+  if (
+    failureType === "challenge_required" ||
+    failureType === "session_expired" ||
+    failureType === "account_identity_mismatch"
+  ) {
+    return 12;
+  }
+
+  return 6;
+}
+
+function formatBlockedUntil(value: string | null) {
+  if (!value) {
+    return "冷却结束";
+  }
+
+  return new Date(value).toLocaleString("zh-CN", {
+    hour12: false
+  });
 }
 
 function mapFailureSeverity(failureType: FailureType) {
@@ -1766,6 +1973,10 @@ function buildFailureDiagnosticNote(message: string) {
   return `LLM诊断：${fields.join(", ")}`;
 }
 
+async function wait(ms: number) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function withTimeoutReject<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
   let timer: NodeJS.Timeout | null = null;
   try {
@@ -1782,4 +1993,78 @@ async function withTimeoutReject<T>(promise: Promise<T>, timeoutMs: number, mess
       clearTimeout(timer);
     }
   }
+}
+
+/**
+ * Calculate adaptive retry backoff based on attempt count and failure type.
+ * Prevents hammering the server and gives time for rate limits to clear.
+ */
+function calculateRetryBackoff(retryCount: number, failureType: string): number {
+  // Base backoff: 30s for first retry, 60s for second
+  const baseMs = 30_000;
+  const multiplier = Math.pow(1.8, retryCount - 1); // 1.0 for 1st retry, 1.8 for 2nd
+  
+  // Scale up for risk-related failures
+  const riskMultiplier = isRiskFailure(failureType) ? 2.0 : 1.0;
+  
+  const backoff = baseMs * multiplier * riskMultiplier;
+  
+  // Add jitter (±20%)
+  const jitter = backoff * 0.2 * (Math.random() - 0.5);
+  
+  // Cap at 3 minutes
+  return Math.min(backoff + jitter, 180_000);
+}
+
+/**
+ * Check if the failure type is risk-related (needs longer backoff)
+ */
+function isRiskFailure(failureType: string): boolean {
+  const riskTypes = [
+    'session_expired',
+    'challenge_required',
+    'account_identity_mismatch',
+    'rate_limit_429',
+    'forbidden_403'
+  ];
+  return riskTypes.includes(failureType);
+}
+
+/**
+ * Validate that no two accounts share the same profile directory.
+ * Returns critical issues if profile sharing is detected.
+ */
+export function validateProfileOneToOne(
+  accounts: Array<{ id: string | number; profileDir?: string | null }>,
+  profileRoot?: string
+): Array<{ type: 'profile_shared'; severity: 'critical'; message: string; accounts: (string | number)[] }> {
+  const profileMap = new Map<string, (string | number)[]>();
+  
+  for (const account of accounts) {
+    if (!account.profileDir) continue;
+    
+    const resolved = profileRoot 
+      ? (path.isAbsolute(account.profileDir) ? account.profileDir : path.join(profileRoot, account.profileDir))
+      : account.profileDir;
+    
+    if (!profileMap.has(resolved)) {
+      profileMap.set(resolved, []);
+    }
+    profileMap.get(resolved)!.push(account.id);
+  }
+  
+  const issues: Array<{ type: 'profile_shared'; severity: 'critical'; message: string; accounts: (string | number)[] }> = [];
+  
+  for (const [profile, accountIds] of profileMap) {
+    if (accountIds.length > 1) {
+      issues.push({
+        type: 'profile_shared',
+        severity: 'critical',
+        message: `Profile ${profile} is shared by accounts: ${accountIds.join(', ')}. Each account must have a unique profile.`,
+        accounts: accountIds
+      });
+    }
+  }
+  
+  return issues;
 }

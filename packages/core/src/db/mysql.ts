@@ -28,9 +28,17 @@ export function getMysqlPool() {
       waitForConnections: true,
       connectionLimit: 10,
       queueLimit: 0,
-      multipleStatements: true
+      multipleStatements: true,
+      connectTimeout: resolveMysqlTimeout(process.env.MYSQL_CONNECT_TIMEOUT_MS, 5_000),
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 0
     });
   }
 
   return pool;
+}
+
+function resolveMysqlTimeout(value: string | undefined, fallbackMs: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : fallbackMs;
 }

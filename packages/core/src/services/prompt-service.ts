@@ -83,8 +83,8 @@ export class PromptService {
       throw new Error("No prompt version available for testing.");
     }
 
-    const client = createOpenAiClient();
-    const runtime = readLlmRuntimeConfig();
+    const client = createOpenAiClient(promptVersion.set_name);
+    const runtime = readLlmRuntimeConfig(promptVersion.set_name);
 
     try {
       const response = await createLlmTextResponse(client, runtime, [

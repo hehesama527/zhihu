@@ -1,0 +1,104 @@
+[
+  {
+    "id": "task-approved-now",
+    "accountId": "acct-ready",
+    "title": "Approved publish",
+    "brief": "approved brief",
+    "goal": "goal",
+    "preferredMode": "single",
+    "forceResearch": false,
+    "status": "published",
+    "currentStage": "published",
+    "researchVersion": 2,
+    "researchMarkdownSnapshot": "# Account Research",
+    "draftPack": {
+      "summary": "sum",
+      "posts": [
+        "hello from dry run"
+      ],
+      "notes": [
+        "note"
+      ]
+    },
+    "reviewResult": {
+      "decision": "approve",
+      "reason": "ok",
+      "revisionInstructions": [],
+      "qualityNotes": []
+    },
+    "publishPlan": {
+      "shouldPublish": true,
+      "mode": "single",
+      "cadence": "single_now",
+      "deferMinutes": 0,
+      "reason": "ship now"
+    },
+    "publishResult": {
+      "transport": "dry_run",
+      "tweetIds": [
+        "1896399453"
+      ],
+      "urls": [
+        "https://x.com/ready_account/status/1896399453"
+      ],
+      "publishedAt": "2026-04-04T10:09:40.552Z",
+      "note": "Dry run only. No live browser publish was executed. Planned 1 post(s)."
+    },
+    "revisionCount": 0,
+    "researchCount": 1,
+    "scheduledAt": null,
+    "failureStage": null,
+    "failureType": null,
+    "failureReason": null,
+    "createdAt": "2026-04-04T10:09:40.532Z",
+    "updatedAt": "2026-04-04T10:09:40.560Z",
+    "startedAt": "2026-04-04T10:09:40.532Z",
+    "finishedAt": "2026-04-04T10:09:40.552Z"
+  },
+  {
+    "id": "task-approved-later",
+    "accountId": "acct-ready",
+    "title": "Approved later",
+    "brief": "approved later",
+    "goal": "goal",
+    "preferredMode": "single",
+    "forceResearch": false,
+    "status": "approved_to_publish",
+    "currentStage": "approved_to_publish",
+    "researchVersion": 2,
+    "researchMarkdownSnapshot": "# Account Research",
+    "draftPack": {
+      "summary": "sum",
+      "posts": [
+        "wait to publish"
+      ],
+      "notes": [
+        "note"
+      ]
+    },
+    "reviewResult": {
+      "decision": "approve",
+      "reason": "ok",
+      "revisionInstructions": [],
+      "qualityNotes": []
+    },
+    "publishPlan": {
+      "shouldPublish": true,
+      "mode": "single",
+      "cadence": "defer",
+      "deferMinutes": 60,
+      "reason": "wait"
+    },
+    "publishResult": null,
+    "revisionCount": 0,
+    "researchCount": 1,
+    "scheduledAt": "2026-04-04T11:09:40.538Z",
+    "failureStage": null,
+    "failureType": null,
+    "failureReason": null,
+    "createdAt": "2026-04-04T10:09:40.532Z",
+    "updatedAt": "2026-04-04T10:09:40.532Z",
+    "startedAt": "2026-04-04T10:09:40.532Z",
+    "finishedAt": null
+  }
+]

@@ -20,7 +20,7 @@ export function OpsScanPanel() {
         typeof payload.error === "object" && payload.error && "message" in payload.error
           ? String((payload.error as { message?: unknown }).message ?? "")
           : text;
-      throw new Error(message || "Failed to run ops scan.");
+      throw new Error(message || "执行运维扫描失败。");
     }
 
     return payload;
@@ -30,8 +30,8 @@ export function OpsScanPanel() {
     <article className="card">
       <div className="card-header">
         <div>
-          <h3>Manual Scan</h3>
-          <p className="muted">Trigger one immediate ops scan in the test environment and inspect the returned summary.</p>
+          <h3>手动扫描</h3>
+          <p className="muted">在测试环境手动触发一轮运维扫描，并查看返回摘要。</p>
         </div>
 
         <button
@@ -43,17 +43,17 @@ export function OpsScanPanel() {
                 const payload = await runScan();
                 setResult(JSON.stringify(payload, null, 2));
               } catch (error) {
-                setResult(error instanceof Error ? error.message : "Failed to run ops scan.");
+                setResult(error instanceof Error ? error.message : "执行运维扫描失败。");
               }
             })
           }
         >
-          {pending ? "Scanning..." : "Run Scan"}
+          {pending ? "扫描中..." : "执行扫描"}
         </button>
       </div>
 
-      <p className="helper-text">Client API: {getClientApiBaseUrl()}</p>
-      <pre>{result || "The latest scan summary will be shown here."}</pre>
+      <p className="helper-text">当前客户端接口：{getClientApiBaseUrl()}</p>
+      <pre>{result || "最近一次扫描摘要会显示在这里。"}</pre>
     </article>
   );
 }

@@ -106,8 +106,8 @@ export function WriterAccountPromptLab({ accounts, writerPromptSet }: WriterAcco
       <section className="stack">
         <div className="card">
           <div className="stack stack--tight">
-            <h3>账号级 Writer Prompt</h3>
-            <p className="muted">还没有可用的 Writer Prompt 版本，暂时无法按人查看或微调。</p>
+            <h3>账号级写作提示词</h3>
+            <p className="muted">还没有可用的写作提示词版本，暂时无法按账号查看或微调。</p>
           </div>
         </div>
       </section>
@@ -118,13 +118,9 @@ export function WriterAccountPromptLab({ accounts, writerPromptSet }: WriterAcco
     <section className="stack">
       <div className="card">
         <div className="stack stack--tight">
-          <h3>账号级 Writer Prompt</h3>
-          <p className="muted">
-            这里按人查看当前生效的写作 Prompt。你可以从当前版本复制出一个账号专属草稿，微调后直接绑定到这个人。
-          </p>
-          <p className="muted">
-            当前前端请求的 API：{getClientApiBaseUrl()}。只有之后新建的 job 会使用新的账号 Prompt，已创建的 job 仍会继续使用自己的快照。
-          </p>
+          <h3>账号级写作提示词</h3>
+          <p className="muted">这里按人查看当前生效的写作提示词。你可以从当前版本复制出一个账号专属草稿，微调后直接绑定到这个账号。</p>
+          <p className="muted">当前前端请求的接口：{getClientApiBaseUrl()}。只有之后新建的任务会使用新的账号提示词，已创建的任务仍会继续使用自己的快照。</p>
         </div>
       </div>
 
@@ -169,7 +165,7 @@ export function WriterAccountPromptLab({ accounts, writerPromptSet }: WriterAcco
                     当前绑定：
                     {selectedAccount?.writerPromptVersionId
                       ? `账号专属版本 #${selectedAccount.writerPromptVersionId}`
-                      : "跟随全局 active Writer Prompt"}
+                      : "跟随全局生效中的写作提示词"}
                   </p>
                   <p className="muted">当前解析结果：{formatPromptVersion(effectiveWriterVersion)}</p>
                 </div>
@@ -180,7 +176,7 @@ export function WriterAccountPromptLab({ accounts, writerPromptSet }: WriterAcco
                   <div className="stack stack--tight">
                     <strong>账号绑定版本不存在</strong>
                     <p className="helper-text">
-                      这个账号当前绑定的是版本 #{selectedAccount?.writerPromptVersionId}，但版本库里找不到它。下面的编辑器先回退展示全局 active 版本，建议你重新保存一版账号专属草稿并绑定。
+                      这个账号当前绑定的是版本 #{selectedAccount?.writerPromptVersionId}，但版本库里已经找不到它。下面的编辑器会先回退展示全局生效版本，建议你重新保存一版账号专属草稿并重新绑定。
                     </p>
                   </div>
                 </div>
@@ -205,7 +201,7 @@ export function WriterAccountPromptLab({ accounts, writerPromptSet }: WriterAcco
               </div>
 
               <label className="field">
-                <span>这个人的 Writer Prompt 基线内容</span>
+                <span>这个账号的写作提示词基线内容</span>
                 <textarea rows={18} value={draftContent} onChange={(event) => setDraftContent(event.target.value)} />
               </label>
 
@@ -237,11 +233,9 @@ export function WriterAccountPromptLab({ accounts, writerPromptSet }: WriterAcco
                         });
 
                         router.refresh();
-                        setResult(
-                          `已为 ${selectedAccount.name} 创建账号专属 Writer Prompt 草稿，并绑定到版本 #${draft.promptVersionId}。`
-                        );
+                        setResult(`已为 ${selectedAccount.name} 创建账号专属写作提示词草稿，并绑定到版本 #${draft.promptVersionId}。`);
                       } catch (error) {
-                        setResult(error instanceof Error ? error.message : "保存账号专属 Prompt 失败。");
+                        setResult(error instanceof Error ? error.message : "保存账号专属提示词失败。");
                       }
                     })
                   }
@@ -269,7 +263,7 @@ export function WriterAccountPromptLab({ accounts, writerPromptSet }: WriterAcco
                         });
 
                         router.refresh();
-                        setResult(`已更新 ${selectedAccount.name} 当前绑定的 Writer Prompt 草稿。`);
+                        setResult(`已更新 ${selectedAccount.name} 当前绑定的写作提示词草稿。`);
                       } catch (error) {
                         setResult(error instanceof Error ? error.message : "更新账号专属草稿失败。");
                       }
@@ -297,9 +291,9 @@ export function WriterAccountPromptLab({ accounts, writerPromptSet }: WriterAcco
                         });
 
                         router.refresh();
-                        setResult(`已将 ${selectedAccount.name} 改回跟随全局 active Writer Prompt。`);
+                        setResult(`已将 ${selectedAccount.name} 改回跟随全局生效中的写作提示词。`);
                       } catch (error) {
-                        setResult(error instanceof Error ? error.message : "切回全局 Prompt 失败。");
+                        setResult(error instanceof Error ? error.message : "切回全局提示词失败。");
                       }
                     })
                   }
@@ -313,31 +307,31 @@ export function WriterAccountPromptLab({ accounts, writerPromptSet }: WriterAcco
               <div className="card">
                 <div className="stack stack--tight">
                   <h4>运行时补充上下文</h4>
-                  <p className="muted">这段内容会在真正调用模型时拼接到 Writer Prompt 后面，用来告诉模型当前是哪个人设在写。</p>
+                  <p className="muted">这段内容会在真正调用模型时拼接到写作提示词后面，用来告诉模型当前是哪个人设在写。</p>
                 </div>
                 <pre className="prompt-preview-shell">{runtimeSuffix ?? "当前账号没有额外的人设补充上下文。"}</pre>
               </div>
 
               <div className="card">
                 <div className="stack stack--tight">
-                  <h4>模型实际看到的完整 Prompt</h4>
-                  <p className="muted">右侧预览会实时反映你在编辑器里做的微调，方便你确认这个人最终会收到什么 Prompt。</p>
+                  <h4>模型实际看到的完整提示词</h4>
+                  <p className="muted">右侧预览会实时反映你在编辑器里做的微调，方便确认这个账号最终会收到什么提示词。</p>
                 </div>
                 <pre className="prompt-preview-shell">
-                  {buildEffectiveWriterPrompt(draftContent, selectedAccount) || "暂无 Prompt 内容"}
+                  {buildEffectiveWriterPrompt(draftContent, selectedAccount) || "暂无提示词内容"}
                 </pre>
               </div>
             </div>
 
             <div className="card">
               <h4>执行反馈</h4>
-              <pre>{result || "这里会显示账号专属 Prompt 的创建、绑定、更新结果。"}</pre>
+              <pre>{result || "这里会显示账号专属提示词的创建、绑定和更新结果。"}</pre>
             </div>
           </div>
         </div>
       ) : (
         <div className="card">
-          <p className="muted">还没有账号，先去账号页创建至少一个人设账号后再做 Prompt 微调。</p>
+          <p className="muted">还没有账号，先去账号页创建至少一个人设账号后再做提示词微调。</p>
         </div>
       )}
     </section>
@@ -354,7 +348,7 @@ function buildAccountDraftLabel(
   }
 
   const versionTag = sourceVersion ? `v${sourceVersion.version}` : "当前版本";
-  return `${account.name} 专属 Writer Prompt（基于 ${versionTag}）`;
+  return `${account.name} 专属写作提示词（基于 ${versionTag}）`;
 }
 
 function buildAccountDraftNotes(

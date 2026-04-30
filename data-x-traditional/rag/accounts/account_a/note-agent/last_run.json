@@ -1,0 +1,33 @@
+{
+  "mode": "style_learning",
+  "accountId": "trad-account-a",
+  "accountKey": "account_a",
+  "sourceAccount": {
+    "platform": "x",
+    "handleOrUrl": "https://x.com/maojietrading",
+    "normalizedHandle": "maojietrading",
+    "profileUrl": "https://x.com/maojietrading"
+  },
+  "collectionSummary": {
+    "requestedSampleSize": 12,
+    "lookbackDays": 45,
+    "includeReplies": false,
+    "timelineRequestedCount": 36,
+    "timelineRawSampleCount": 36,
+    "timelineSampleCount": 8,
+    "focusFilteredCount": 28,
+    "manualSeedCount": 0,
+    "collectedSampleCount": 8,
+    "browserCollectionSucceeded": true,
+    "sourceHandle": "maojietrading",
+    "sourceUrl": "https://x.com/maojietrading",
+    "browserDiagnostics": []
+  },
+  "generatedAt": "2026-04-23T07:56:12.885Z",
+  "appliedAt": "2026-04-23T10:16:51.724Z",
+  "actionsApplied": {
+    "writeRagDocs": true,
+    "saveSoulCandidate": true,
+    "saveLearnedAssets": true
+  }
+}

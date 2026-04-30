@@ -7,8 +7,11 @@ import { normalizeBrowserChannel, type SupportedBrowserChannel } from "../utils/
 export interface AppConfig {
   mysqlUrl: string;
   apiPort: number;
+  imageApiPort: number;
   webUrl: string;
   apiUrl: string;
+  imageApiUrl: string;
+  imageApiPublicBaseUrl: string;
   feishuBotWebhookUrl: string | null;
   feishuBotSecret: string | null;
   timezone: string;
@@ -23,10 +26,20 @@ export interface AppConfig {
   opsAgentIntervalMs: number;
   topicKeywords: string[];
   zhihuBaseUrl: string;
+  imageAssetsDir: string;
+  imageAnalysisModel: string;
+  imageOcrModel: string;
+  imageOcrJudgeModel: string;
+  ollamaBaseUrl: string;
+  imageAnalysisConcurrency: number;
+  imageAnalysisTimeoutMs: number;
+  imageAnalysisRetryCount: number;
+  antiDetectionV3Enabled: boolean;
 }
 
 let envLoaded = false;
 let cachedWorkspaceRoot: string | null = null;
+const initialProcessEnvKeys = new Set(Object.keys(process.env));
 
 export function getAppConfig(): AppConfig {
   const workspaceRoot = findWorkspaceRoot();
@@ -36,8 +49,14 @@ export function getAppConfig(): AppConfig {
   return {
     mysqlUrl: process.env.MYSQL_URL ?? "mysql://root:password@127.0.0.1:6306/zhihu_mvp",
     apiPort: Number(process.env.API_PORT ?? 8787),
+    imageApiPort: Number(process.env.IMAGE_API_PORT ?? 8789),
     webUrl: process.env.WEB_URL ?? "http://localhost:3000",
     apiUrl: process.env.API_URL ?? "http://localhost:8787",
+    imageApiUrl: process.env.IMAGE_API_URL ?? "http://localhost:8789",
+    imageApiPublicBaseUrl:
+      normalizeBaseUrl(process.env.IMAGE_API_PUBLIC_BASE_URL)
+      ?? normalizeBaseUrl(process.env.NEXT_PUBLIC_IMAGE_API_BASE_URL)
+      ?? "/image-api",
     feishuBotWebhookUrl: normalizeOptionalEnvValue(process.env.FEISHU_BOT_WEBHOOK_URL),
     feishuBotSecret: normalizeOptionalEnvValue(process.env.FEISHU_BOT_SECRET),
     timezone: process.env.APP_TIMEZONE ?? "Asia/Shanghai",
@@ -56,7 +75,20 @@ export function getAppConfig(): AppConfig {
       .split(",")
       .map((item) => item.trim())
       .filter(Boolean),
-    zhihuBaseUrl: process.env.ZHIHU_BASE_URL ?? "https://www.zhihu.com"
+    zhihuBaseUrl: process.env.ZHIHU_BASE_URL ?? "https://www.zhihu.com",
+    imageAssetsDir: process.env.IMAGE_ASSETS_DIR ?? path.join(process.env.DATA_DIR ?? path.join(workspaceRoot, "data"), "image-assets"),
+    imageAnalysisModel: process.env.IMAGE_ANALYSIS_MODEL ?? "qwen3-vl:8b",
+    imageOcrModel: process.env.IMAGE_OCR_MODEL ?? process.env.IMAGE_ANALYSIS_MODEL ?? "qwen3-vl:8b",
+    imageOcrJudgeModel:
+      process.env.IMAGE_OCR_JUDGE_MODEL
+      ?? process.env.IMAGE_OCR_MODEL
+      ?? process.env.IMAGE_ANALYSIS_MODEL
+      ?? "qwen3-vl:8b",
+    ollamaBaseUrl: process.env.OLLAMA_BASE_URL ?? "http://127.0.0.1:11434",
+    imageAnalysisConcurrency: Number(process.env.IMAGE_ANALYSIS_CONCURRENCY ?? 1),
+    imageAnalysisTimeoutMs: Number(process.env.IMAGE_ANALYSIS_TIMEOUT_MS ?? 180_000),
+    imageAnalysisRetryCount: Number(process.env.IMAGE_ANALYSIS_RETRY_COUNT ?? 2),
+    antiDetectionV3Enabled: process.env.ANTI_DETECTION_V3_ENABLED !== "false"
   };
 }
 
@@ -88,7 +120,7 @@ function ensureWorkspaceEnvLoaded(workspaceRoot: string) {
 
       const key = trimmed.slice(0, equalsIndex).trim();
       const rawValue = trimmed.slice(equalsIndex + 1).trim();
-      if (!key || process.env[key] !== undefined) {
+      if (!key || initialProcessEnvKeys.has(key)) {
         continue;
       }
 
@@ -180,4 +212,17 @@ function normalizeOptionalEnvValue(value: string | undefined) {
 
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
+}
+
+function normalizeBaseUrl(value: string | undefined) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  return trimmed.replace(/\/+$/, "");
 }

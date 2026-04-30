@@ -1,6 +1,12 @@
 import type { PromptSnapshotMap } from "@zhihu-mvp/shared";
-import { type AccountPromptContext, buildTopicPromptSuffix } from "./account-prompt-context.js";
+import {
+  type AccountPromptContext,
+  buildTopicPromptSuffix,
+  buildTopicTargetProductPromptSuffix,
+  joinPromptSuffixes
+} from "./account-prompt-context.js";
 import { LlmService } from "./llm-service.js";
+import { ZhihuAgentContextService } from "./zhihu-agent-context-service.js";
 
 export type TopicReviewScoreBreakdown = {
   problem_core_delta: number;
@@ -22,6 +28,8 @@ export type TopicReviewResult = {
 };
 
 export class TopicReviewService {
+  private readonly agentContextService = new ZhihuAgentContextService();
+
   constructor(private readonly llmService: LlmService) {}
 
   async reviewDuplication(
@@ -56,9 +64,13 @@ export class TopicReviewService {
       return fallback;
     }
 
+    const agentContextDocuments = await this.agentContextService.ensureDocuments();
     const topicPrompt = await this.llmService.resolvePrompt("topic_agent", {
       promptSnapshot,
-      promptSuffix: buildTopicPromptSuffix(accountContext)
+      promptSuffix: joinPromptSuffixes(
+        buildTopicPromptSuffix(accountContext),
+        buildTopicTargetProductPromptSuffix(agentContextDocuments)
+      )
     });
 
     const rawResult = await this.llmService.runJsonWithSystemPrompt<TopicReviewResult>(

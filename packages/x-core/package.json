@@ -1,0 +1,18 @@
+{
+  "name": "@zhihu-mvp/x-core",
+  "version": "0.1.2",
+  "private": true,
+  "type": "module",
+  "main": "dist/x-core/src/index.js",
+  "types": "dist/x-core/src/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@zhihu-mvp/core": "0.1.2",
+    "@zhihu-mvp/shared": "0.1.2",
+    "playwright": "^1.58.2",
+    "zod": "^3.24.2"
+  }
+}

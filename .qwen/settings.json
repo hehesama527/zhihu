@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(copy *)",
+      "Bash(npm run *)",
+      "Bash(mysql *)",
+      "Bash(do *)",
+      "Bash(netstat *)",
+      "Bash(findstr *)",
+      "Bash(taskkill *)",
+      "Bash(tasklist)",
+      "Bash(concurrently *)",
+      "Bash(ping *)"
+    ]
+  },
+  "$version": 3
+}

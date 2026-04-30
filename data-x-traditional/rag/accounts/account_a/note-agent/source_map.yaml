@@ -1,0 +1,61 @@
+version: 1
+targetAccountId: "trad-account-a"
+targetAccountKey: "account_a"
+targetHandle: "account_a"
+sourceAccount:
+  platform: "x"
+  handleOrUrl: "https://x.com/maojietrading"
+  normalizedHandle: "maojietrading"
+  profileUrl: "https://x.com/maojietrading"
+collection:
+  requestedSampleSize: 12
+  lookbackDays: 45
+  includeReplies: false
+  timelineRequestedCount: 36
+  timelineRawSampleCount: 36
+  timelineSampleCount: 8
+  focusFilteredCount: 28
+  manualSeedCount: 0
+  collectedSampleCount: 8
+  browserCollectionSucceeded: true
+samples:
+  - id: "timeline_001"
+    source: "timeline"
+    tweetUrl: "https://x.com/maojietrading/status/2045149902473220395"
+    publishedAt: "2026-04-17T14:38:28.000Z"
+    preview: "小哥继续雄起，左侧分批介入的时候历历在目，和25年是一样的，就这么简单，可惜很有一部分人，想拉拉不动，想带也带不动。。所以交易只属于少数人的，如昨天发的X，都是孤独者游戏，坚持自己的数据和判断，杂音拉黑就好。继续mark这个交易记录，留给年老的时候看。 $COIN 小哥周三盘中…"
+  - id: "timeline_002"
+    source: "timeline"
+    tweetUrl: "https://x.com/maojietrading/status/2044090583359062519"
+    publishedAt: "2026-04-14T16:29:07.000Z"
+    preview: "今天市场太癫了。。。受不了了。。。大科技开始反转。MSFT也是3/30和我们左侧进场meta同一天发出的系统信号，不过那天选择的是meta，继续关注大科技的反转，这将意味着美股常态恢复"
+  - id: "timeline_003"
+    source: "timeline"
+    tweetUrl: "https://x.com/maojietrading/status/2042024835631481256"
+    publishedAt: "2026-04-08T23:40:34.000Z"
+    preview: "$INTC 周三创新高，上无阻力，突破了长期下降趋势和震荡横盘走势，不跌破50就会往上不断测试高点。 俺和这只无缘，之前几次操作都不太节奏，这会儿又暴涨，相反COIN和LITE这些就特别顺利。 1，真的得选择自己投缘的个股。2，如果某只个股暴涨而又不是自己的持仓，那么就“他强由…"
+  - id: "timeline_004"
+    source: "timeline"
+    tweetUrl: "https://x.com/maojietrading/status/2041967746078892304"
+    publishedAt: "2026-04-08T19:53:43.000Z"
+    preview: "$META 周三终于扬眉吐气，说是发布了自己的LLM。上周一3/30笨猫左侧加了仓，碰巧是这轮最低点，看起来巧合实际是技术指标到位 ，周一价格没跌破但大周期陷入严重超卖，且日线无法跌破，这类背离大约几年都碰不到一次，遇到像META这样的好男人标的，一般来说是机会，可以大胆尝试左侧"
+  - id: "timeline_005"
+    source: "timeline"
+    tweetUrl: "https://x.com/maojietrading/status/2041880623996887271"
+    publishedAt: "2026-04-08T14:07:31.000Z"
+    preview: "无论消息面如何干扰，美股市场的脉络一直是很清晰的，我们上周五在YouTube的一周美股复盘视频指出市场变盘即转势，空头崩溃，上周一（本轮最底部，往前翻都有同步）左侧进场多头后逐渐增加多头+出清对冲。"
+  - id: "timeline_006"
+    source: "timeline"
+    tweetUrl: "https://x.com/Sinus84/status/2040478392827412858"
+    publishedAt: "2026-04-04T17:15:33.000Z"
+    preview: "我自己更常用的检查表只有4个：1）IV 是高估还是低估；2）催化剂在什么时候落地；3）我需要行情多快走出来；4）如果判断错了，最大亏损是否可接受。先做定价判断，再做方向判断，期权交易会稳定很多。4/4"
+  - id: "timeline_007"
+    source: "timeline"
+    tweetUrl: "https://x.com/maojietrading/status/2040518368738816187"
+    publishedAt: "2026-04-04T19:54:24.000Z"
+    preview: "现在一看IV高的期权都没什么操作的欲望 期权交易里，很多人亏钱不是因为方向看错，而是因为把\"高波动率\"当成了\"高机会\"。真正要先判断的不是涨跌，而是：你买的是方向，还是买贵了的预期？1/4"
+  - id: "timeline_008"
+    source: "timeline"
+    tweetUrl: "https://x.com/maojietrading/status/2041599250241314841"
+    publishedAt: "2026-04-07T19:29:26.000Z"
+    preview: "关键点位怎么用？突破不了日内多单学会灵活止盈，这样不必去跟人家的单，自己就可以判断。另外，我们提供的多仓进场和过夜仓位比例增减也可以供参考和借鉴，如果连续减仓就要注意风险，清仓或增加空头对冲则意味着较熊，连续加仓则意味着较牛的多头行情"

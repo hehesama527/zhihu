@@ -2,6 +2,8 @@ import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { getAppConfig } from "../config/env.js";
+import { getProfileUserAgent } from "./stealth-inject.js";
 
 export type SupportedBrowserChannel = "chrome" | "msedge";
 
@@ -109,4 +111,71 @@ function existsSyncSafe(filePath: string) {
   } catch {
     return false;
   }
+}
+
+/**
+ * Stealth launch options for Phase 1 anti-detection - PER PROFILE.
+ * profileDir is used as seed to generate consistent but different UA and window-size per account.
+ * Same profileDir always gets the same fingerprint configuration.
+ * Follows 知乎反检测优化落地方案.md v3.0 + "每个账户指纹固定但不同" requirement.
+ */
+export function getStealthLaunchOptions(channel: SupportedBrowserChannel, profileDir?: string) {
+  const config = getAppConfig();
+  if (!config.antiDetectionV3Enabled) {
+    return {
+      args: ["--start-maximized", "--disable-blink-features=AutomationControlled"],
+      userAgent: undefined as string | undefined,
+      locale: undefined as string | undefined,
+    };
+  }
+
+  const profileSeed = profileDir || 'default';
+
+  // 20+ anti-detection args - use profile seed for window size variation
+  const hash = profileSeed.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+  const windowPresets = ['1920,1080', '1366,768', '1440,900', '1536,864'];
+  const windowSize = windowPresets[Math.abs(hash) % windowPresets.length];
+
+  const stealthArgs = [
+    "--start-maximized",
+    "--disable-blink-features=AutomationControlled",
+    "--disable-blink-features=SiteIsolationTrials,Translate",
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-accelerated-2d-canvas",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--disable-web-security",
+    "--disable-features=IsolateOrigins,site-per-process",
+    "--disable-features=AudioServiceOutOfProcess",
+    "--lang=zh-CN",
+    "--accept-lang=zh-CN,zh,en-US",
+    `--window-size=${windowSize}`,
+    "--force-device-scale-factor=1",
+    "--disable-gpu",
+    "--enable-features=NetworkService,NetworkServiceInProcess",
+    "--disable-background-networking",
+    "--disable-background-timer-throttling",
+    "--disable-renderer-backgrounding",
+  ];
+
+  return {
+    args: stealthArgs,
+    userAgent: getProfileUserAgent(profileSeed),
+    locale: "zh-CN",
+    timezoneId: "Asia/Shanghai",
+  };
+}
+
+/**
+ * Get random realistic Edge UA from pool (for future UA rotation).
+ */
+export function getRandomUserAgent(): string {
+  const uaPool = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.0.0',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36 Edg/133.0.0.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.0.0',
+  ];
+  return uaPool[Math.floor(Math.random() * uaPool.length)];
 }

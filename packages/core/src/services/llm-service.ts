@@ -98,7 +98,8 @@ export class LlmService {
         prompt,
         input,
         timeoutMs,
-        `${promptSetName} returned empty response text.`
+        `${promptSetName} returned empty response text.`,
+        promptSetName
       );
       logDebugTiming("llm.runPrompt", "done", {
         promptSetName,
@@ -128,9 +129,15 @@ export class LlmService {
     return safeParseJson(responseText, fallback);
   }
 
-  async runSystemPrompt(systemPrompt: string, input: unknown, timeoutMs = DEFAULT_LLM_REQUEST_TIMEOUT_MS, emptyMessage?: string) {
-    const client = createOpenAiClient();
-    const runtime = readLlmRuntimeConfig();
+  async runSystemPrompt(
+    systemPrompt: string,
+    input: unknown,
+    timeoutMs = DEFAULT_LLM_REQUEST_TIMEOUT_MS,
+    emptyMessage?: string,
+    runtimeTarget: PromptSetName | "zhihu" = "zhihu"
+  ) {
+    const client = createOpenAiClient(runtimeTarget);
+    const runtime = readLlmRuntimeConfig(runtimeTarget);
 
     const response = await createLlmTextResponse(
       client,
@@ -199,7 +206,7 @@ export class LlmService {
 }
 
 function getPromptTimeoutMs(promptSetName: PromptSetName) {
-  if (promptSetName === "writer_agent") {
+  if (promptSetName === "writer_agent" || promptSetName === "zhihu_note_agent") {
     return WRITER_LLM_REQUEST_TIMEOUT_MS;
   }
 

@@ -10,8 +10,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@zhihu-mvp/core": "0.1.0",
-    "@zhihu-mvp/shared": "0.1.0"
+    "@zhihu-mvp/core": "0.1.2",
+    "@zhihu-mvp/shared": "0.1.2"
   },
   "devDependencies": {
     "tsx": "^4.19.3"

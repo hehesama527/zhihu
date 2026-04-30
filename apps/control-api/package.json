@@ -1,0 +1,22 @@
+{
+  "name": "@zhihu-mvp/control-api",
+  "version": "0.1.2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.2",
+    "@zhihu-mvp/core": "0.1.2",
+    "@zhihu-mvp/shared": "0.1.2",
+    "@zhihu-mvp/x-core": "0.1.2",
+    "fastify": "^5.2.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.3"
+  }
+}

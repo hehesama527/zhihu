@@ -1,47 +1,34 @@
 import type { ReactNode } from "react";
 import type { Metadata } from "next";
-import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Zhihu Matrix Control Center",
-  description: "Manage scheduling, topics, publishing, account recovery, prompts, and ops incidents."
+  title: "矩阵工作台",
+  description: "在知乎工作台与 Twitter / X 工作台之间切换。"
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
+  // 浏览器只能看到代理路径，不能看到内部地址
   const apiBaseUrl =
-    process.env.API_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8787";
+    process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
+  const controlApiBaseUrl =
+    process.env.NEXT_PUBLIC_CONTROL_API_BASE_URL ?? "/control-api";
+  const hotspotApiBaseUrl =
+    process.env.NEXT_PUBLIC_HOTSPOT_API_BASE_URL ?? "/hotspot-api";
+  const imageApiBaseUrl = controlApiBaseUrl;
+  const xApiBaseUrl =
+    process.env.NEXT_PUBLIC_X_API_BASE_URL ?? "/x-api";
 
   return (
     <html lang="zh-CN">
       <body>
         <script
           dangerouslySetInnerHTML={{
-            __html: `window.__ZHIHU_MVP_API_BASE_URL__ = ${JSON.stringify(apiBaseUrl)};`
+            __html: `window.__ZHIHU_MVP_API_BASE_URL__ = ${JSON.stringify(apiBaseUrl)}; window.__ZHIHU_MVP_IMAGE_API_BASE_URL__ = ${JSON.stringify(imageApiBaseUrl)}; window.__ZHIHU_MVP_CONTROL_API_BASE_URL__ = ${JSON.stringify(controlApiBaseUrl)}; window.__ZHIHU_MVP_HOTSPOT_API_BASE_URL__ = ${JSON.stringify(hotspotApiBaseUrl)}; window.__X_MVP_API_BASE_URL__ = ${JSON.stringify(xApiBaseUrl)};`
           }}
         />
-
-        <div className="shell">
-          <aside className="sidebar">
-            <div className="brand">
-              <span className="brand-kicker">Zhihu MVP</span>
-              <h1>Zhihu Matrix Console</h1>
-              <p>Control content flow, publishing, account recovery, prompts, and ops diagnostics in one place.</p>
-            </div>
-
-            <nav className="nav">
-              <Link href="/">Dashboard</Link>
-              <Link href="/schedule">Schedule</Link>
-              <Link href="/topics">Topics / Drafts</Link>
-              <Link href="/publish-jobs">Publish Jobs</Link>
-              <Link href="/prompts">Prompt Studio</Link>
-              <Link href="/account">Accounts</Link>
-              <Link href="/ops">Ops</Link>
-            </nav>
-          </aside>
-
-          <main className="content">{children}</main>
-        </div>
+        <script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
+        {children}
       </body>
     </html>
   );

@@ -6,9 +6,12 @@ CREATE TABLE IF NOT EXISTS accounts (
   name VARCHAR(255) NOT NULL,
   zhihu_user_name VARCHAR(255) NULL,
   writer_prompt_version_id INT NULL,
+  risk_domain VARCHAR(128) NOT NULL DEFAULT 'default',
   status VARCHAR(64) NOT NULL DEFAULT 'active',
   status_reason LONGTEXT NULL,
   profile_dir VARCHAR(512) NULL,
+  cooldown_until DATETIME NULL,
+  last_risk_at DATETIME NULL,
   last_login_check_at DATETIME NULL,
   last_publish_at DATETIME NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -86,10 +89,13 @@ CREATE TABLE IF NOT EXISTS publish_jobs (
   retry_count INT NOT NULL DEFAULT 0,
   failure_reason LONGTEXT NULL,
   prompt_version_snapshot_json LONGTEXT NULL,
+  soul_version INT NULL,
+  soul_markdown_snapshot LONGTEXT NULL,
   current_stage VARCHAR(64) NULL,
   resume_anchor_json LONGTEXT NULL,
   last_trace_id VARCHAR(128) NULL,
   last_error_type VARCHAR(128) NULL,
+  image_asset_id VARCHAR(36) NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_publish_jobs_account FOREIGN KEY (account_id) REFERENCES accounts(id),
@@ -238,6 +244,84 @@ CREATE TABLE IF NOT EXISTS prompt_test_runs (
   CONSTRAINT fk_prompt_test_runs_version FOREIGN KEY (prompt_version_id) REFERENCES prompt_versions(id)
 );
 
+CREATE TABLE IF NOT EXISTS image_assets (
+  id VARCHAR(36) PRIMARY KEY,
+  asset_type VARCHAR(32) NOT NULL DEFAULT 'other',
+  source_type VARCHAR(32) NOT NULL DEFAULT 'local_import',
+  file_name VARCHAR(255) NOT NULL,
+  source_path LONGTEXT NULL,
+  storage_path LONGTEXT NOT NULL,
+  thumbnail_path LONGTEXT NULL,
+  file_hash CHAR(64) NOT NULL,
+  mime_type VARCHAR(64) NOT NULL,
+  file_size BIGINT NOT NULL,
+  width INT NULL,
+  height INT NULL,
+  aspect_ratio VARCHAR(32) NOT NULL DEFAULT 'square',
+  platform_scope VARCHAR(32) NOT NULL DEFAULT 'unknown',
+  usage_scope VARCHAR(64) NOT NULL DEFAULT 'general',
+  has_text TINYINT(1) NOT NULL DEFAULT 0,
+  ocr_text LONGTEXT NULL,
+  anchor_keyword VARCHAR(128) NULL,
+  caption_short LONGTEXT NULL,
+  caption_long LONGTEXT NULL,
+  auto_caption LONGTEXT NULL,
+  manual_caption LONGTEXT NULL,
+  entity_tags JSON NULL,
+  topic_tags JSON NULL,
+  emotion_tags JSON NULL,
+  scene_tags JSON NULL,
+  style_tags JSON NULL,
+  risk_level VARCHAR(32) NOT NULL DEFAULT 'unknown',
+  risk_notes LONGTEXT NULL,
+  copyright_source LONGTEXT NULL,
+  analysis_status VARCHAR(32) NOT NULL DEFAULT 'pending',
+  analysis_error LONGTEXT NULL,
+  analysis_payload_json LONGTEXT NULL,
+  manual_override_fields_json LONGTEXT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'pending_review',
+  use_count INT NOT NULL DEFAULT 0,
+  last_used_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_image_assets_file_hash (file_hash),
+  INDEX idx_image_assets_status_platform_type (status, platform_scope, asset_type),
+  INDEX idx_image_assets_created (created_at),
+  INDEX idx_image_assets_last_used (last_used_at)
+);
+
+CREATE TABLE IF NOT EXISTS image_import_jobs (
+  id VARCHAR(36) PRIMARY KEY,
+  source_type VARCHAR(32) NOT NULL,
+  source_path LONGTEXT NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'pending',
+  total_count INT NOT NULL DEFAULT 0,
+  imported_count INT NOT NULL DEFAULT 0,
+  duplicated_count INT NOT NULL DEFAULT 0,
+  skipped_count INT NOT NULL DEFAULT 0,
+  failed_count INT NOT NULL DEFAULT 0,
+  error_message LONGTEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  completed_at DATETIME NULL,
+  INDEX idx_image_import_jobs_status_created (status, created_at)
+);
+
+CREATE TABLE IF NOT EXISTS image_asset_usage_records (
+  id VARCHAR(36) PRIMARY KEY,
+  asset_id VARCHAR(36) NOT NULL,
+  platform VARCHAR(32) NOT NULL,
+  account_id VARCHAR(64) NULL,
+  task_id VARCHAR(64) NULL,
+  content_id VARCHAR(64) NULL,
+  usage_type VARCHAR(64) NOT NULL DEFAULT 'preview',
+  selected_by VARCHAR(32) NOT NULL DEFAULT 'manual',
+  note LONGTEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_image_usage_asset (asset_id),
+  INDEX idx_image_usage_platform_task (platform, task_id),
+  CONSTRAINT fk_image_asset_usage_asset FOREIGN KEY (asset_id) REFERENCES image_assets(id)
+);
+
 CREATE TABLE IF NOT EXISTS ops_incidents (
   id INT AUTO_INCREMENT PRIMARY KEY,
   fingerprint CHAR(64) NOT NULL,
@@ -265,6 +349,26 @@ CREATE TABLE IF NOT EXISTS ops_incidents (
   INDEX idx_ops_incidents_service_status (service_name, status, updated_at),
   INDEX idx_ops_incidents_job_status (job_id, status, updated_at)
 );
+
+CREATE TABLE IF NOT EXISTS zhihu_scraped_content (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  source_account VARCHAR(255) NOT NULL,
+  content_type VARCHAR(32) NOT NULL,
+  content_id VARCHAR(128) NOT NULL,
+  question_title VARCHAR(512) NULL,
+  question_url VARCHAR(1024) NULL,
+  content_text LONGTEXT NULL,
+  content_html LONGTEXT NULL,
+  vote_count INT NOT NULL DEFAULT 0,
+  comment_count INT NOT NULL DEFAULT 0,
+  created_at DATETIME NULL,
+  scraped_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  content_hash CHAR(64) NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'pending',
+  rejected_reason VARCHAR(255) NULL,
+  UNIQUE KEY uniq_zhihu_scraped_content_source (source_account, content_type, content_id),
+  INDEX idx_zhihu_scraped_content_query (source_account, status, scraped_at)
+);
 `;
 
 type ColumnMigration = {
@@ -276,8 +380,23 @@ type ColumnMigration = {
 const columnMigrations: ColumnMigration[] = [
   {
     table: "accounts",
+    column: "risk_domain",
+    ddl: "ALTER TABLE accounts ADD COLUMN risk_domain VARCHAR(128) NOT NULL DEFAULT 'default' AFTER writer_prompt_version_id"
+  },
+  {
+    table: "accounts",
     column: "status_reason",
     ddl: "ALTER TABLE accounts ADD COLUMN status_reason LONGTEXT NULL AFTER status"
+  },
+  {
+    table: "accounts",
+    column: "cooldown_until",
+    ddl: "ALTER TABLE accounts ADD COLUMN cooldown_until DATETIME NULL AFTER profile_dir"
+  },
+  {
+    table: "accounts",
+    column: "last_risk_at",
+    ddl: "ALTER TABLE accounts ADD COLUMN last_risk_at DATETIME NULL AFTER cooldown_until"
   },
   {
     table: "accounts",
@@ -346,6 +465,16 @@ const columnMigrations: ColumnMigration[] = [
   },
   {
     table: "publish_jobs",
+    column: "soul_version",
+    ddl: "ALTER TABLE publish_jobs ADD COLUMN soul_version INT NULL AFTER prompt_version_snapshot_json"
+  },
+  {
+    table: "publish_jobs",
+    column: "soul_markdown_snapshot",
+    ddl: "ALTER TABLE publish_jobs ADD COLUMN soul_markdown_snapshot LONGTEXT NULL AFTER soul_version"
+  },
+  {
+    table: "publish_jobs",
     column: "resume_anchor_json",
     ddl: "ALTER TABLE publish_jobs ADD COLUMN resume_anchor_json LONGTEXT NULL AFTER current_stage"
   },
@@ -360,17 +489,53 @@ const columnMigrations: ColumnMigration[] = [
     ddl: "ALTER TABLE publish_jobs ADD COLUMN last_error_type VARCHAR(128) NULL AFTER last_trace_id"
   },
   {
+    table: "publish_jobs",
+    column: "image_asset_id",
+    ddl: "ALTER TABLE publish_jobs ADD COLUMN image_asset_id VARCHAR(36) NULL AFTER last_error_type"
+  },
+  {
     table: "daily_publish_schedule",
     column: "account_id",
     ddl: "ALTER TABLE daily_publish_schedule ADD COLUMN account_id INT NULL AFTER id"
+  },
+  {
+    table: "image_assets",
+    column: "anchor_keyword",
+    ddl: "ALTER TABLE image_assets ADD COLUMN anchor_keyword VARCHAR(128) NULL AFTER ocr_text"
+  },
+  {
+    table: "image_assets",
+    column: "caption_short",
+    ddl: "ALTER TABLE image_assets ADD COLUMN caption_short LONGTEXT NULL AFTER anchor_keyword"
+  },
+  {
+    table: "image_assets",
+    column: "caption_long",
+    ddl: "ALTER TABLE image_assets ADD COLUMN caption_long LONGTEXT NULL AFTER caption_short"
+  },
+  {
+    table: "image_assets",
+    column: "entity_tags",
+    ddl: "ALTER TABLE image_assets ADD COLUMN entity_tags JSON NULL AFTER manual_caption"
+  },
+  {
+    table: "zhihu_scraped_content",
+    column: "rejected_reason",
+    ddl: "ALTER TABLE zhihu_scraped_content ADD COLUMN rejected_reason VARCHAR(255) NULL AFTER status"
   }
 ];
 
 const rawMigrations = [
+  "UPDATE accounts SET risk_domain = 'default' WHERE risk_domain IS NULL OR TRIM(risk_domain) = ''",
   "ALTER TABLE publish_jobs MODIFY COLUMN topic_card_id INT NULL",
   "ALTER TABLE publish_jobs MODIFY COLUMN review_id INT NULL",
   "ALTER TABLE publish_jobs MODIFY COLUMN title VARCHAR(512) NULL",
-  "ALTER TABLE publish_jobs MODIFY COLUMN status VARCHAR(64) NOT NULL DEFAULT 'queued'"
+  "ALTER TABLE publish_jobs MODIFY COLUMN status VARCHAR(64) NOT NULL DEFAULT 'queued'",
+  `UPDATE image_assets
+   SET caption_short = auto_caption
+   WHERE (caption_short IS NULL OR TRIM(caption_short) = '')
+     AND auto_caption IS NOT NULL
+     AND TRIM(auto_caption) <> ''`
 ];
 
 type IndexMigration = {
@@ -402,6 +567,11 @@ const addIndexMigrations: IndexMigration[] = [
     table: "daily_publish_schedule",
     index: "idx_schedule_account_date",
     ddl: "ALTER TABLE daily_publish_schedule ADD INDEX idx_schedule_account_date (account_id, schedule_date, scheduled_at)"
+  },
+  {
+    table: "publish_jobs",
+    index: "idx_publish_jobs_image_asset",
+    ddl: "ALTER TABLE publish_jobs ADD INDEX idx_publish_jobs_image_asset (image_asset_id)"
   }
 ];
 

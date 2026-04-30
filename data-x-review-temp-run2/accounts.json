@@ -1,0 +1,25 @@
+[
+  {
+    "id": "7b8b192a-ee51-4095-a36d-57dea6eb2979",
+    "name": "Run Bot",
+    "handle": "run_bot2",
+    "persona": "QA",
+    "targetAudience": "internal",
+    "styleGuide": "direct",
+    "learningTargets": [
+      "qa"
+    ],
+    "manualNotes": "review",
+    "accessToken": null,
+    "authStatus": null,
+    "authStatusReason": null,
+    "authCheckedAt": null,
+    "profileDir": "H:\\claw\\data-x\\profiles\\run_bot2",
+    "proxyUrl": null,
+    "status": "active",
+    "lastResearchAt": null,
+    "lastPublishedAt": null,
+    "createdAt": "2026-04-04T09:43:57.687Z",
+    "updatedAt": "2026-04-04T09:43:57.687Z"
+  }
+]

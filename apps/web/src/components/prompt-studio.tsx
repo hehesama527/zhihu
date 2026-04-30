@@ -99,12 +99,9 @@ export function PromptStudio({ promptSets, accounts }: PromptStudioProps) {
 
       <div className="card">
         <div className="stack stack--tight">
-          <h3>全局 Prompt 版本库</h3>
-          <p className="muted">
-            这里维护 `topic_agent`、`writer_agent`、`review_agent`、`publish_agent` 的全局版本。账号级微调目前只对
-            Writer Prompt 生效。
-          </p>
-          <p className="muted">当前前端请求的 API：{getClientApiBaseUrl()}</p>
+          <h3>全局提示词版本库</h3>
+          <p className="muted">这里维护 `topic_agent`、`writer_agent`、`review_agent`、`publish_agent` 的全局版本。账号级微调目前只对写作提示词生效。</p>
+          <p className="muted">当前前端请求的接口：{getClientApiBaseUrl()}</p>
         </div>
       </div>
 
@@ -123,7 +120,7 @@ export function PromptStudio({ promptSets, accounts }: PromptStudioProps) {
                 setResult("");
               }}
             >
-              <span>{promptSet.title}</span>
+              <span>{getPromptSetTitle(promptSet.name)}</span>
               <small>{promptSet.name}</small>
             </button>
           ))}
@@ -133,9 +130,9 @@ export function PromptStudio({ promptSets, accounts }: PromptStudioProps) {
           <div className="card">
             <div className="card-header">
               <div>
-                <h2>{selectedSet?.title ?? "Prompt Studio"}</h2>
+                <h2>{selectedSet ? getPromptSetTitle(selectedSet.name) : "提示词管理台"}</h2>
                 <p className="muted">当前生效版本：{selectedSet?.activeVersionId ?? "暂无"}</p>
-                <p className="muted">只有新建 job 会使用新 prompt，运行中的 job 会继续使用自己的快照。</p>
+                <p className="muted">只有新建任务会使用新提示词，运行中的任务会继续使用自己的快照。</p>
               </div>
             </div>
 
@@ -146,7 +143,7 @@ export function PromptStudio({ promptSets, accounts }: PromptStudioProps) {
                   className={`version-pill ${selectedVersion?.id === version.id ? "version-pill--active" : ""}`}
                   onClick={() => hydrateDraft(version)}
                 >
-                  v{version.version} {version.label}
+                  v{version.version} {version.label} / {formatVersionStatus(version.status)}
                 </button>
               ))}
             </div>
@@ -164,7 +161,7 @@ export function PromptStudio({ promptSets, accounts }: PromptStudioProps) {
             </label>
 
             <label className="field">
-              <span>Prompt 文本</span>
+              <span>提示词文本</span>
               <textarea rows={18} value={draftContent} onChange={(event) => setDraftContent(event.target.value)} />
             </label>
 
@@ -336,4 +333,25 @@ export function PromptStudio({ promptSets, accounts }: PromptStudioProps) {
       </div>
     </div>
   );
+}
+
+function getPromptSetTitle(name: string) {
+  const map: Record<string, string> = {
+    topic_agent: "选题提示词",
+    writer_agent: "写作提示词",
+    review_agent: "审核提示词",
+    publish_agent: "发布提示词"
+  };
+
+  return map[name] ?? name;
+}
+
+function formatVersionStatus(status: string) {
+  const map: Record<string, string> = {
+    draft: "草稿",
+    active: "生效中",
+    archived: "已归档"
+  };
+
+  return map[status] ?? status;
 }

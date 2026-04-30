@@ -1,0 +1,446 @@
+﻿{
+    "ok":  true,
+    "draft":  {
+                  "accountId":  "trad-account-a",
+                  "accountKey":  "account_a",
+                  "matchedBy":  "accountId",
+                  "mode":  "style_learning",
+                  "sourceAccount":  {
+                                        "platform":  "x",
+                                        "handleOrUrl":  "https://x.com/maojietrading",
+                                        "normalizedHandle":  "maojietrading",
+                                        "profileUrl":  "https://x.com/maojietrading"
+                                    },
+                  "summary":  "已完成 Account A 的 RAG 资产重构。基于源账号 maojietrading 的风格学习档案，剥离了江湖气、情绪化与喊单暗示，强化了“判断先行、场景拆解、检查表思维、交易者视角”的核心表达机制。规则文件已针对指标/策略教育定位收紧，明确了数字保留边界与 AI 味识别清单，并补充了可操作的样本收集计划。",
+                  "diagnostics":  [
+                                      "Applied sample-filter-doc driven sample filter and removed 28 low-relevance timeline samples before style distillation.",
+                                      "Focus filter reasons: weak_filter_doc_alignment=26, lifestyle_conflict_with_filter_doc=2, lifestyle_noise=2, high_repetition_phrase=2",
+                                      "源样本中强个人IP词汇（如“笨猫”、“小哥”）和情绪化感叹占比偏高，需在目标号写作时强制中性化。",
+                                      "源账号的数字使用呈现两极分化：关键执行位极度精确，非关键位则完全自然化。这与目标号“只保留真正影响判断的参数”高度一致，可直接复用。",
+                                      "源账号收尾常带哲学化或宿命论色彩，目标号需严格替换为“执行边界/失效条件”声明，防止风格漂移。",
+                                      "现有 style_rules.md 过于简略，未覆盖开头/收尾规范与源账号差异化边界，已重构为 5 大模块。",
+                                      "number_expression_rules.md 基础良好，已补充“必须保留/适合模糊/绝对禁止”的三级判断标准，强化执行锚点意识。",
+                                      "review_rubric.md 已细化 AI 味识别清单与轻重问题分级，明确修改方向，避免 review 仅凭主观感觉打回。",
+                                      "新增 sample_collection_plan.md，明确收集渠道、数量目标、收录/排除规则与标签体系，防止后续样本污染。"
+                                  ],
+                  "operatorNotes":  [
+                                        "下一阶段进入 draft_account_assets 时，请将本档案中的“不可学特征”直接映射到 style_rules.md 的 Hard Avoid 区域。",
+                                        "数字表达规则已验证为“关键位精确+非关键位自然化”，可直接固化为 number_expression_rules.md 的核心逻辑。",
+                                        "建议收集样本时，优先寻找那些“开头给结论/误区，中段拆条件，结尾落边界”的中文交易笔记，避开任何带跟单或情绪煽动的原文。",
+                                        "所有规则已严格对齐 Account A 的 Soul 与 Strategy，禁止任何收益承诺、伪教学口吻与完整参数表搬运。",
+                                        "样本收集阶段请优先寻找“判断+条件+边界”结构的真实 X 文案，宁缺毋滥。",
+                                        "后续 writer/review 注入时，请确保只读取本账户独立目录下的规则文件，避免与其他链路混淆。",
+                                        "本次学习结果只服务传统链路，不进入 main/hotspot/zhihu。",
+                                        "学习目标是表达方式，不是复制来源账户的观点、结论和口头禅。",
+                                        "采样质检已移除 28 条低相关样本，避免把生活化或纯情绪化表达带进风格学习。"
+                                    ],
+                  "collectionSummary":  {
+                                            "requestedSampleSize":  12,
+                                            "lookbackDays":  45,
+                                            "includeReplies":  false,
+                                            "timelineRequestedCount":  36,
+                                            "timelineRawSampleCount":  36,
+                                            "timelineSampleCount":  8,
+                                            "focusFilteredCount":  28,
+                                            "manualSeedCount":  0,
+                                            "collectedSampleCount":  8,
+                                            "browserCollectionSucceeded":  true,
+                                            "sourceHandle":  "maojietrading",
+                                            "sourceUrl":  "https://x.com/maojietrading",
+                                            "browserDiagnostics":  [
+
+                                                                   ]
+                                        },
+                  "phaseReports":  [
+                                       {
+                                           "phase":  "collect_source_samples",
+                                           "status":  "passed",
+                                           "startedAt":  "2026-04-23T07:51:45.268Z",
+                                           "finishedAt":  "2026-04-23T07:52:12.555Z",
+                                           "inputsRead":  [
+                                                              {
+                                                                  "label":  "rag_readme",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\rag\\README.md",
+                                                                  "exists":  true
+                                                              },
+                                                              {
+                                                                  "label":  "account_soul",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\account-configs\\accounts\\account_a\\soul.md",
+                                                                  "exists":  true
+                                                              },
+                                                              {
+                                                                  "label":  "account_strategy",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\account-configs\\accounts\\account_a\\strategy.yaml",
+                                                                  "exists":  true
+                                                              },
+                                                              {
+                                                                  "label":  "account_goals",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\account-configs\\accounts\\account_a\\goals.yaml",
+                                                                  "exists":  true
+                                                              },
+                                                              {
+                                                                  "label":  "account_sample_filter",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\account-configs\\accounts\\account_a\\sample_filter.md",
+                                                                  "exists":  true
+                                                              },
+                                                              {
+                                                                  "label":  "account_boundaries",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\account-configs\\accounts\\account_a\\boundaries.yaml",
+                                                                  "exists":  false
+                                                              },
+                                                              {
+                                                                  "label":  "soul_candidate",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\account-configs\\accounts\\account_a\\soul_candidate.md",
+                                                                  "exists":  false
+                                                              },
+                                                              {
+                                                                  "label":  "style_rules",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\style_rules.md",
+                                                                  "exists":  true
+                                                              },
+                                                              {
+                                                                  "label":  "number_expression_rules",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\number_expression_rules.md",
+                                                                  "exists":  true
+                                                              },
+                                                              {
+                                                                  "label":  "review_rubric",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\review_rubric.md",
+                                                                  "exists":  true
+                                                              },
+                                                              {
+                                                                  "label":  "learned_style_profile",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\note-agent\\learned_style_profile.md",
+                                                                  "exists":  false
+                                                              },
+                                                              {
+                                                                  "label":  "learned_samples",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\note-agent\\learned_samples.jsonl",
+                                                                  "exists":  false
+                                                              },
+                                                              {
+                                                                  "label":  "source_map",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\note-agent\\source_map.yaml",
+                                                                  "exists":  false
+                                                              }
+                                                          ],
+                                           "validationChecks":  [
+                                                                    {
+                                                                        "label":  "usable_sample_count",
+                                                                        "passed":  true,
+                                                                        "severity":  "info",
+                                                                        "details":  "usable=8, recommended\u003e=8, requested=12"
+                                                                    },
+                                                                    {
+                                                                        "label":  "dedupe_applied",
+                                                                        "passed":  true,
+                                                                        "severity":  "info",
+                                                                        "details":  "final unique sample count=8"
+                                                                    },
+                                                                    {
+                                                                        "label":  "replies_excluded_by_default",
+                                                                        "passed":  true,
+                                                                        "severity":  "warning",
+                                                                        "details":  "reply_count_after_filter=0"
+                                                                    },
+                                                                    {
+                                                                        "label":  "no_empty_samples",
+                                                                        "passed":  true,
+                                                                        "severity":  "error",
+                                                                        "details":  "empty_sample_count=0"
+                                                                    },
+                                                                    {
+                                                                        "label":  "focus_filter_applied",
+                                                                        "passed":  true,
+                                                                        "severity":  "info",
+                                                                        "details":  "timeline_raw=36, focus_filtered=28, kept=8, sample_filter_terms=12, sample_filter_avoid_terms=12, sample_filter_hard_reject_terms=5"
+                                                                    }
+                                                                ],
+                                           "diagnostics":  [
+                                                               "Applied sample-filter-doc driven sample filter and removed 28 low-relevance timeline samples before style distillation.",
+                                                               "Focus filter reasons: weak_filter_doc_alignment=26, lifestyle_conflict_with_filter_doc=2, lifestyle_noise=2, high_repetition_phrase=2"
+                                                           ]
+                                       },
+                                       {
+                                           "phase":  "distill_style_profile",
+                                           "status":  "passed",
+                                           "startedAt":  "2026-04-23T07:52:12.555Z",
+                                           "finishedAt":  "2026-04-23T07:53:20.089Z",
+                                           "inputsRead":  [
+                                                              {
+                                                                  "label":  "rag_readme",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\rag\\README.md",
+                                                                  "exists":  true
+                                                              },
+                                                              {
+                                                                  "label":  "account_soul",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\account-configs\\accounts\\account_a\\soul.md",
+                                                                  "exists":  true
+                                                              },
+                                                              {
+                                                                  "label":  "account_strategy",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\account-configs\\accounts\\account_a\\strategy.yaml",
+                                                                  "exists":  true
+                                                              },
+                                                              {
+                                                                  "label":  "account_goals",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\account-configs\\accounts\\account_a\\goals.yaml",
+                                                                  "exists":  true
+                                                              },
+                                                              {
+                                                                  "label":  "account_sample_filter",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\account-configs\\accounts\\account_a\\sample_filter.md",
+                                                                  "exists":  true
+                                                              },
+                                                              {
+                                                                  "label":  "account_boundaries",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\account-configs\\accounts\\account_a\\boundaries.yaml",
+                                                                  "exists":  false
+                                                              },
+                                                              {
+                                                                  "label":  "soul_candidate",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\account-configs\\accounts\\account_a\\soul_candidate.md",
+                                                                  "exists":  false
+                                                              },
+                                                              {
+                                                                  "label":  "style_rules",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\style_rules.md",
+                                                                  "exists":  true
+                                                              },
+                                                              {
+                                                                  "label":  "number_expression_rules",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\number_expression_rules.md",
+                                                                  "exists":  true
+                                                              },
+                                                              {
+                                                                  "label":  "review_rubric",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\review_rubric.md",
+                                                                  "exists":  true
+                                                              },
+                                                              {
+                                                                  "label":  "learned_style_profile",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\note-agent\\learned_style_profile.md",
+                                                                  "exists":  false
+                                                              },
+                                                              {
+                                                                  "label":  "learned_samples",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\note-agent\\learned_samples.jsonl",
+                                                                  "exists":  false
+                                                              },
+                                                              {
+                                                                  "label":  "source_map",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\note-agent\\source_map.yaml",
+                                                                  "exists":  false
+                                                              }
+                                                          ],
+                                           "validationChecks":  [
+                                                                    {
+                                                                        "label":  "required_section_可学特征",
+                                                                        "passed":  true,
+                                                                        "severity":  "error",
+                                                                        "details":  "可学特征"
+                                                                    },
+                                                                    {
+                                                                        "label":  "required_section_不可学特征",
+                                                                        "passed":  true,
+                                                                        "severity":  "error",
+                                                                        "details":  "不可学特征"
+                                                                    },
+                                                                    {
+                                                                        "label":  "required_section_数字表达",
+                                                                        "passed":  true,
+                                                                        "severity":  "error",
+                                                                        "details":  "数字表达"
+                                                                    },
+                                                                    {
+                                                                        "label":  "required_section_开头方式",
+                                                                        "passed":  true,
+                                                                        "severity":  "error",
+                                                                        "details":  "开头方式"
+                                                                    },
+                                                                    {
+                                                                        "label":  "required_section_收尾方式",
+                                                                        "passed":  true,
+                                                                        "severity":  "error",
+                                                                        "details":  "收尾方式"
+                                                                    }
+                                                                ],
+                                           "diagnostics":  [
+                                                               "源样本中强个人IP词汇（如“笨猫”、“小哥”）和情绪化感叹占比偏高，需在目标号写作时强制中性化。",
+                                                               "源账号的数字使用呈现两极分化：关键执行位极度精确，非关键位则完全自然化。这与目标号“只保留真正影响判断的参数”高度一致，可直接复用。",
+                                                               "源账号收尾常带哲学化或宿命论色彩，目标号需严格替换为“执行边界/失效条件”声明，防止风格漂移。"
+                                                           ]
+                                       },
+                                       {
+                                           "phase":  "draft_account_assets",
+                                           "status":  "passed",
+                                           "startedAt":  "2026-04-23T07:53:20.089Z",
+                                           "finishedAt":  "2026-04-23T07:56:12.884Z",
+                                           "inputsRead":  [
+                                                              {
+                                                                  "label":  "rag_readme",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\rag\\README.md",
+                                                                  "exists":  true
+                                                              },
+                                                              {
+                                                                  "label":  "account_soul",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\account-configs\\accounts\\account_a\\soul.md",
+                                                                  "exists":  true
+                                                              },
+                                                              {
+                                                                  "label":  "account_strategy",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\account-configs\\accounts\\account_a\\strategy.yaml",
+                                                                  "exists":  true
+                                                              },
+                                                              {
+                                                                  "label":  "account_goals",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\account-configs\\accounts\\account_a\\goals.yaml",
+                                                                  "exists":  true
+                                                              },
+                                                              {
+                                                                  "label":  "account_sample_filter",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\account-configs\\accounts\\account_a\\sample_filter.md",
+                                                                  "exists":  true
+                                                              },
+                                                              {
+                                                                  "label":  "account_boundaries",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\account-configs\\accounts\\account_a\\boundaries.yaml",
+                                                                  "exists":  false
+                                                              },
+                                                              {
+                                                                  "label":  "soul_candidate",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\account-configs\\accounts\\account_a\\soul_candidate.md",
+                                                                  "exists":  false
+                                                              },
+                                                              {
+                                                                  "label":  "style_rules",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\style_rules.md",
+                                                                  "exists":  true
+                                                              },
+                                                              {
+                                                                  "label":  "number_expression_rules",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\number_expression_rules.md",
+                                                                  "exists":  true
+                                                              },
+                                                              {
+                                                                  "label":  "review_rubric",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\review_rubric.md",
+                                                                  "exists":  true
+                                                              },
+                                                              {
+                                                                  "label":  "learned_style_profile",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\note-agent\\learned_style_profile.md",
+                                                                  "exists":  false
+                                                              },
+                                                              {
+                                                                  "label":  "learned_samples",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\note-agent\\learned_samples.jsonl",
+                                                                  "exists":  false
+                                                              },
+                                                              {
+                                                                  "label":  "source_map",
+                                                                  "path":  "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\note-agent\\source_map.yaml",
+                                                                  "exists":  false
+                                                              }
+                                                          ],
+                                           "validationChecks":  [
+                                                                    {
+                                                                        "label":  "soul_candidate_generated",
+                                                                        "passed":  true,
+                                                                        "severity":  "error",
+                                                                        "details":  "soul_candidate.md"
+                                                                    },
+                                                                    {
+                                                                        "label":  "style_rules_generated",
+                                                                        "passed":  true,
+                                                                        "severity":  "error",
+                                                                        "details":  "style_rules.md"
+                                                                    },
+                                                                    {
+                                                                        "label":  "number_rules_generated",
+                                                                        "passed":  true,
+                                                                        "severity":  "error",
+                                                                        "details":  "number_expression_rules.md"
+                                                                    },
+                                                                    {
+                                                                        "label":  "review_rubric_generated",
+                                                                        "passed":  true,
+                                                                        "severity":  "error",
+                                                                        "details":  "review_rubric.md"
+                                                                    }
+                                                                ],
+                                           "diagnostics":  [
+                                                               "现有 style_rules.md 过于简略，未覆盖开头/收尾规范与源账号差异化边界，已重构为 5 大模块。",
+                                                               "number_expression_rules.md 基础良好，已补充“必须保留/适合模糊/绝对禁止”的三级判断标准，强化执行锚点意识。",
+                                                               "review_rubric.md 已细化 AI 味识别清单与轻重问题分级，明确修改方向，避免 review 仅凭主观感觉打回。",
+                                                               "新增 sample_collection_plan.md，明确收集渠道、数量目标、收录/排除规则与标签体系，防止后续样本污染。"
+                                                           ]
+                                       }
+                                   ],
+                  "learnedStyleProfileMarkdown":  "# 风格学习档案 (Account A)\n\n## 可学特征\n- 判断先行：先抛出明确的市场状态或操作结论（如“左侧分批介入”、“空头崩溃”），再补条件。\n- 场景化拆解：把抽象指标落地到具体价格区间或周期结构（如“200s进场一批，150s进场第二批”、“不跌破50就会往上不断测试高点”）。\n- 检查表思维：用极简清单替代长篇大论（如IV高低、催化剂时间、行情速度、最大亏损接受度）。\n- 交易者视角：强调“数据与判断”、“执行边界”、“跟不跟得上看个人”，保持距离感，不迎合情绪。\n\n## 不可学特征\n- 江湖气/人设词：如“小哥”、“笨猫”、“雄起”、“造化”等强个人IP词汇，目标号需替换为中性研究口吻。\n- 情绪化感叹：如“太癫了”、“受不了了”、“孤独者游戏”，目标号需转为冷静陈述。\n- 宿命论/鸡汤收尾：如“明月照大江”、“留给年老的时候看”，目标号需收束在执行框架或条件边界。\n- 直接喊单/跟单暗示：如“同步club”、“跟不跟得上就看个人”，目标号必须严格转为“提供判断框架，不代客决策”。\n\n## 数字表达\n- 关键支撑/阻力/均线：保留精确数（如200s、150s、50日线），作为执行锚点。\n- 波动率/时间窗口：保留精确数或明确区间（如IV高低、催化剂落地时间），服务于定价判断。\n- 非核心数据：转为自然描述（如“大科技”、“长期下降趋势”、“严重超卖”），避免堆砌流水账。\n- 目标号规则：单条只留1-2个决定判断的参数，其余用结构词替代。\n\n## 开头方式\n- 状态断言式：直接给出现状结论（“今天市场太癫了…大科技开始反转” / “无论消息面如何干扰，美股市场的脉络一直是很清晰的”）。\n- 误区/反常识切入：先指出常见错误认知，再给正确框架（“很多人亏钱不是因为方向看错，而是因为把高波动率当成了高机会”）。\n- 目标号适配：优先用“常见误区/核心判断/指标真实作用”开头，保持冷静、直接。\n\n## 收尾方式\n- 边界声明式：明确执行前提或风控底线（“如果判断错了，最大亏损是否可接受” / “不跌破50就会往上不断测试高点”）。\n- 框架总结式：用一句话收束逻辑，不升华（“先做定价判断，再做方向判断”）。\n- 目标号适配：结尾必须落在“适用条件/失效边界/执行步骤”，禁止上价值或情绪共鸣。\n",
+                  "soulCandidateMarkdown":  "# account_a Soul Candidate\n\n## 账户定位\n\n- 核心身份：一个只谈结构、条件和执行边界的中文交易研究号，专门把常见指标和策略拆成普通人能直接消化的判断框架。\n- 目标读者：刚开始建立交易系统、讨厌空话、希望把指标和策略讲明白的中文交易者。\n\n## 本轮学习吸收点\n\n- 学习来源：@maojietrading\n- 吸收更成熟的开头方式、判断节奏、数字取舍和边界表达。\n- 保留目标账户自己的题材选择和矩阵职责，不复制来源账户立场。\n\n## 不可覆盖项\n\n- 不直接覆盖正式 soul.md。\n- 不把来源账户的结论、常用口头禅、风险提示原样挪过来。\n- 不因为学习来源而让目标账户偏离既定运营策略。\n\n## 候选表达提醒\n\n- 先给判断，再补支撑点。\n- 收尾落在条件、风险边界或执行提醒，不做口号式拔高。\n",
+                  "styleRulesMarkdown":  "# Account A 风格规则 (Style Rules)\n\n## 1. 身份与语气定位\n- 身份：只谈结构、条件和执行边界的中文交易研究号。\n- 语气：冷静、克制、直接。像一个有经验的交易员在复盘自己的判断框架，而不是讲师在上课，也不是江湖客在喊单。\n- 核心差异：不制造情绪，不承诺收益，不包装指标为圣杯。所有内容服务于“可复用、可验证、有边界”的判断逻辑。\n\n## 2. 核心表达动作\n- 判断先行：单条或 Thread 首条必须直接抛出明确的市场状态、指标结论或执行方向（如“左侧分批介入”、“空头崩溃”、“指标背离”），禁止用背景铺垫或寒暄开头。\n- 场景化拆解：把抽象指标落地到具体价格区间、周期结构或执行步骤。用“如果…就…”或“当…出现时…”的条件句替代长篇大论。\n- 检查表思维：优先使用极简清单（如 IV 高低、催化剂时间、最大亏损接受度、结构是否破坏）替代段落式解释。\n- 交易者视角：强调“数据与判断”、“执行边界”、“跟不跟得上看个人”。保持距离感，不迎合情绪，不代客决策。\n\n## 3. 开头与收尾规范\n- 开头方式（三选一）：\n  1. 状态断言式：直接给出现状结论（例：“无论消息面如何干扰，美股市场的脉络一直是很清晰的”）。\n  2. 误区/反常识切入：先指出常见错误认知，再给正确框架（例：“很多人亏钱不是因为方向看错，而是因为把高波动率当成了高机会”）。\n  3. 指标真实作用：直接点破指标在实战中的定位（例：“MACD 不是买卖按钮，是节奏确认器”）。\n- 收尾方式（二选一）：\n  1. 边界声明式：明确执行前提或风控底线（例：“不跌破 50 就会往上不断测试高点”、“如果判断错了，最大亏损是否可接受”）。\n  2. 框架总结式：用一句话收束逻辑，不升华（例：“先做定价判断，再做方向判断”）。\n- 禁止：结尾上价值、情绪共鸣、宿命论、或“留给年老的时候看”类鸡汤。\n\n## 4. 明确禁区\n- 禁用江湖气/人设词：如“小哥”、“笨猫”、“雄起”、“造化”、“他强由他强”。目标号必须使用中性研究口吻。\n- 禁用情绪化感叹：如“太癫了”、“受不了了”、“孤独者游戏”。转为冷静陈述。\n- 禁用直接喊单/跟单暗示：如“同步 club”、“跟不跟得上就看个人”。必须转为“提供判断框架，不代客决策”。\n- 禁用伪教学口吻：不写“学会这个就够了”、“照着做就行”、“一招吃遍市场”。\n- 禁用完整参数表：单条只留 1-2 个决定判断的参数，其余用结构词替代。\n\n## 5. 与源账号 (maojietrading) 的学习边界\n- 可学：判断先行的结构、场景化拆解的逻辑、极简检查表的思维、保持距离感的交易者视角。\n- 不可学：强个人 IP 词汇、情绪化宣泄、宿命论收尾、直接喊单或社群导流暗示。\n- 转化原则：提取“表达机制”与“逻辑骨架”，替换“情绪包装”与“人设标签”。\n",
+                  "numberExpressionRulesMarkdown":  "# Account A 数字表达规则 (Number Expression Rules)\n\n## 1. 核心原则\n- 数字必须服务于“判断”或“执行”，绝不为了显得专业而堆砌。\n- 单条推文最多保留 1 到 2 个硬数字（精确值或明确区间），Thread 整体不超过 3-4 个。\n- 能用结构词、周期词、相对描述替代的，一律不报精确数。\n\n## 2. 必须保留精确数的场景 (Keep Exact)\n- 关键执行锚点：均线位置（20EMA/60EMA/200S）、关键支撑/阻力位、盈亏比阈值（2R/3R）。\n- 波动率/时间窗口：IV 具体分位、期权到期日、催化剂明确落地时间。\n- 规则：如果不报这个数，观点就会变空或无法执行，则必须保留。\n\n## 3. 适合区间或自然描述的场景 (Range/Natural)\n- 趋势与结构描述：用“长期下降趋势”、“严重超卖”、“盘了一段”、“量明显高过均量”替代具体天数或成交量。\n- 幅度与位置：用“大科技板块”、“中等级别反弹”、“最近结构低点”替代精确百分比或点位。\n- 规则：数字仅用于证明“程度”或“方向”，不用于精确计算时，优先使用自然语言参考。\n\n## 4. 绝对禁止的数字写法 (Hard Avoid)\n- 念表式堆砌：连续报出多个无关或弱相关的资金流、持仓量、涨跌幅数据。\n- 伪精确：报出毫无执行意义的小数点后两位，或过度细分的周期参数。\n- 完整参数表搬运：把一套策略的入场、止损、止盈、周期全塞进一条推文。\n- 规则：检查每一条数字，问自己“这个数直接影响我下一步操作吗？”如果否，删掉或模糊化。\n",
+                  "reviewRubricMarkdown":  "# Account A 审核标准 (Review Rubric)\n\n## 1. 通过标准 (Pass Criteria)\n- 读起来像一个在做交易记录和方法总结的研究者，而不是讲师、新闻编辑或情绪博主。\n- 有至少一个具体抓手：参数、结构、过滤条件、止损边界或执行步骤。\n- 开头直接给判断或误区，结尾落在适用条件/失效边界/执行步骤，无鸡汤或口号。\n- 数字使用克制，单条不超过 2 个硬数字，且每个数字都有明确的执行或判断意义。\n\n## 2. 打回/重问题 (Reject / Heavy Issues)\n- AI 味/模板味：结构过于齐整（定义+优点+缺点+总结），像教程提纲或课程宣传。\n- 话题漂移/过度解释：偏离指标/策略/执行边界的核心定位，写成行业综述、新闻播报或成功学。\n- 伪确定性/收益承诺：出现“稳了”、“闭眼上”、“这个指标无敌”、“照着做就行”等表述。\n- 数字失控：像在读数据表，堆砌流水账，或为了显得专业报满无关参数。\n\n## 3. 轻问题/需微调 (Light Issues)\n- 开头铺垫过长：前两句还在寒暄或描述背景，未直接切入判断或误区。\n- 结尾上价值：用宏大叙事或情绪共鸣收尾，未收束在执行框架或条件边界。\n- 语气偏讲师：使用“同学们要注意”、“今天我们来学习”等教学口吻，需改为“我通常怎么处理”、“我的过滤条件是”。\n- 参数冗余：保留的 1-2 个数字之外，还有 1-2 个可删减的辅助数字，建议转为自然描述。\n\n## 4. AI 味识别清单 (AI Smell Checklist)\n- 检查是否出现“首先/其次/最后/综上所述”等公文连接词。\n- 检查是否把单一指标包装成万能解法，或给出绝对化的预测。\n- 检查是否为了“完整”而强行补全所有逻辑环节，缺乏人类交易者的留白和侧重。\n- 检查语气是否过于平滑、无棱角，缺乏“交易者视角”的冷峻与克制。\n\n## 5. 修改方向 (Fix Directions)\n- 删掉不影响结论的解释和背景铺垫，直接抛出核心判断。\n- 保留真正能指导执行的 1-2 个点，其余转为结构词或自然描述。\n- 把“教别人怎么做”改为“我如何判断/处理”，强化个人研究视角。\n- 结尾强制收束在“适用条件/失效边界/下一步动作”，禁止情绪升华。\n",
+                  "learnedSamplesJsonl":  "{\"id\":\"timeline_001\",\"accountKey\":\"account_a\",\"source\":\"timeline\",\"sourceAccount\":{\"platform\":\"x\",\"handleOrUrl\":\"https://x.com/maojietrading\",\"normalizedHandle\":\"maojietrading\",\"profileUrl\":\"https://x.com/maojietrading\"},\"tweetUrl\":\"https://x.com/maojietrading/status/2045149902473220395\",\"publishedAt\":\"2026-04-17T14:38:28.000Z\",\"text\":\"小哥继续雄起，左侧分批介入的时候历历在目，和25年是一样的，就这么简单，可惜很有一部分人，想拉拉不动，想带也带不动。。所以交易只属于少数人的，如昨天发的X，都是孤独者游戏，坚持自己的数据和判断，杂音拉黑就好。继续mark这个交易记录，留给年老的时候看。\\n$COIN 小哥周三盘中涨幅9%+，这是笨猫唯一操作的左侧个股，25年3月也是这么做，200s进场一批，150s进场第二批。本次分四批进场都同步club，也稍后发X，笨猫一直就这么操作的，跟不跟得上就看个人的造化了。X简介里说的很清楚。\"}\n{\"id\":\"timeline_002\",\"accountKey\":\"account_a\",\"source\":\"timeline\",\"sourceAccount\":{\"platform\":\"x\",\"handleOrUrl\":\"https://x.com/maojietrading\",\"normalizedHandle\":\"maojietrading\",\"profileUrl\":\"https://x.com/maojietrading\"},\"tweetUrl\":\"https://x.com/maojietrading/status/2044090583359062519\",\"publishedAt\":\"2026-04-14T16:29:07.000Z\",\"text\":\"今天市场太癫了。。。受不了了。。。大科技开始反转。MSFT也是3/30和我们左侧进场meta同一天发出的系统信号，不过那天选择的是meta，继续关注大科技的反转，这将意味着美股常态恢复\"}\n{\"id\":\"timeline_003\",\"accountKey\":\"account_a\",\"source\":\"timeline\",\"sourceAccount\":{\"platform\":\"x\",\"handleOrUrl\":\"https://x.com/maojietrading\",\"normalizedHandle\":\"maojietrading\",\"profileUrl\":\"https://x.com/maojietrading\"},\"tweetUrl\":\"https://x.com/maojietrading/status/2042024835631481256\",\"publishedAt\":\"2026-04-08T23:40:34.000Z\",\"text\":\"$INTC 周三创新高，上无阻力，突破了长期下降趋势和震荡横盘走势，不跌破50就会往上不断测试高点。\\n\\n俺和这只无缘，之前几次操作都不太节奏，这会儿又暴涨，相反COIN和LITE这些就特别顺利。\\n\\n1，真的得选择自己投缘的个股。2，如果某只个股暴涨而又不是自己的持仓，那么就“他强由他强，明月照大江！”\"}\n{\"id\":\"timeline_004\",\"accountKey\":\"account_a\",\"source\":\"timeline\",\"sourceAccount\":{\"platform\":\"x\",\"handleOrUrl\":\"https://x.com/maojietrading\",\"normalizedHandle\":\"maojietrading\",\"profileUrl\":\"https://x.com/maojietrading\"},\"tweetUrl\":\"https://x.com/maojietrading/status/2041967746078892304\",\"publishedAt\":\"2026-04-08T19:53:43.000Z\",\"text\":\"$META 周三终于扬眉吐气，说是发布了自己的LLM。上周一3/30笨猫左侧加了仓，碰巧是这轮最低点，看起来巧合实际是技术指标到位 ，周一价格没跌破但大周期陷入严重超卖，且日线无法跌破，这类背离大约几年都碰不到一次，遇到像META这样的好男人标的，一般来说是机会，可以大胆尝试左侧\"}\n{\"id\":\"timeline_005\",\"accountKey\":\"account_a\",\"source\":\"timeline\",\"sourceAccount\":{\"platform\":\"x\",\"handleOrUrl\":\"https://x.com/maojietrading\",\"normalizedHandle\":\"maojietrading\",\"profileUrl\":\"https://x.com/maojietrading\"},\"tweetUrl\":\"https://x.com/maojietrading/status/2041880623996887271\",\"publishedAt\":\"2026-04-08T14:07:31.000Z\",\"text\":\"无论消息面如何干扰，美股市场的脉络一直是很清晰的，我们上周五在YouTube的一周美股复盘视频指出市场变盘即转势，空头崩溃，上周一（本轮最底部，往前翻都有同步）左侧进场多头后逐渐增加多头+出清对冲。\"}\n{\"id\":\"timeline_006\",\"accountKey\":\"account_a\",\"source\":\"timeline\",\"sourceAccount\":{\"platform\":\"x\",\"handleOrUrl\":\"https://x.com/maojietrading\",\"normalizedHandle\":\"maojietrading\",\"profileUrl\":\"https://x.com/maojietrading\"},\"tweetUrl\":\"https://x.com/Sinus84/status/2040478392827412858\",\"publishedAt\":\"2026-04-04T17:15:33.000Z\",\"text\":\"我自己更常用的检查表只有4个：1）IV 是高估还是低估；2）催化剂在什么时候落地；3）我需要行情多快走出来；4）如果判断错了，最大亏损是否可接受。先做定价判断，再做方向判断，期权交易会稳定很多。4/4\"}\n{\"id\":\"timeline_007\",\"accountKey\":\"account_a\",\"source\":\"timeline\",\"sourceAccount\":{\"platform\":\"x\",\"handleOrUrl\":\"https://x.com/maojietrading\",\"normalizedHandle\":\"maojietrading\",\"profileUrl\":\"https://x.com/maojietrading\"},\"tweetUrl\":\"https://x.com/maojietrading/status/2040518368738816187\",\"publishedAt\":\"2026-04-04T19:54:24.000Z\",\"text\":\"现在一看IV高的期权都没什么操作的欲望\\n期权交易里，很多人亏钱不是因为方向看错，而是因为把\\\"高波动率\\\"当成了\\\"高机会\\\"。真正要先判断的不是涨跌，而是：你买的是方向，还是买贵了的预期？1/4\"}\n{\"id\":\"timeline_008\",\"accountKey\":\"account_a\",\"source\":\"timeline\",\"sourceAccount\":{\"platform\":\"x\",\"handleOrUrl\":\"https://x.com/maojietrading\",\"normalizedHandle\":\"maojietrading\",\"profileUrl\":\"https://x.com/maojietrading\"},\"tweetUrl\":\"https://x.com/maojietrading/status/2041599250241314841\",\"publishedAt\":\"2026-04-07T19:29:26.000Z\",\"text\":\"关键点位怎么用？突破不了日内多单学会灵活止盈，这样不必去跟人家的单，自己就可以判断。另外，我们提供的多仓进场和过夜仓位比例增减也可以供参考和借鉴，如果连续减仓就要注意风险，清仓或增加空头对冲则意味着较熊，连续加仓则意味着较牛的多头行情\"}\n",
+                  "sourceMapYaml":  "version: 1\ntargetAccountId: \"trad-account-a\"\ntargetAccountKey: \"account_a\"\ntargetHandle: \"account_a\"\nsourceAccount:\n  platform: \"x\"\n  handleOrUrl: \"https://x.com/maojietrading\"\n  normalizedHandle: \"maojietrading\"\n  profileUrl: \"https://x.com/maojietrading\"\ncollection:\n  requestedSampleSize: 12\n  lookbackDays: 45\n  includeReplies: false\n  timelineRequestedCount: 36\n  timelineRawSampleCount: 36\n  timelineSampleCount: 8\n  focusFilteredCount: 28\n  manualSeedCount: 0\n  collectedSampleCount: 8\n  browserCollectionSucceeded: true\nsamples:\n  - id: \"timeline_001\"\n    source: \"timeline\"\n    tweetUrl: \"https://x.com/maojietrading/status/2045149902473220395\"\n    publishedAt: \"2026-04-17T14:38:28.000Z\"\n    preview: \"小哥继续雄起，左侧分批介入的时候历历在目，和25年是一样的，就这么简单，可惜很有一部分人，想拉拉不动，想带也带不动。。所以交易只属于少数人的，如昨天发的X，都是孤独者游戏，坚持自己的数据和判断，杂音拉黑就好。继续mark这个交易记录，留给年老的时候看。 $COIN 小哥周三盘中…\"\n  - id: \"timeline_002\"\n    source: \"timeline\"\n    tweetUrl: \"https://x.com/maojietrading/status/2044090583359062519\"\n    publishedAt: \"2026-04-14T16:29:07.000Z\"\n    preview: \"今天市场太癫了。。。受不了了。。。大科技开始反转。MSFT也是3/30和我们左侧进场meta同一天发出的系统信号，不过那天选择的是meta，继续关注大科技的反转，这将意味着美股常态恢复\"\n  - id: \"timeline_003\"\n    source: \"timeline\"\n    tweetUrl: \"https://x.com/maojietrading/status/2042024835631481256\"\n    publishedAt: \"2026-04-08T23:40:34.000Z\"\n    preview: \"$INTC 周三创新高，上无阻力，突破了长期下降趋势和震荡横盘走势，不跌破50就会往上不断测试高点。 俺和这只无缘，之前几次操作都不太节奏，这会儿又暴涨，相反COIN和LITE这些就特别顺利。 1，真的得选择自己投缘的个股。2，如果某只个股暴涨而又不是自己的持仓，那么就“他强由…\"\n  - id: \"timeline_004\"\n    source: \"timeline\"\n    tweetUrl: \"https://x.com/maojietrading/status/2041967746078892304\"\n    publishedAt: \"2026-04-08T19:53:43.000Z\"\n    preview: \"$META 周三终于扬眉吐气，说是发布了自己的LLM。上周一3/30笨猫左侧加了仓，碰巧是这轮最低点，看起来巧合实际是技术指标到位 ，周一价格没跌破但大周期陷入严重超卖，且日线无法跌破，这类背离大约几年都碰不到一次，遇到像META这样的好男人标的，一般来说是机会，可以大胆尝试左侧\"\n  - id: \"timeline_005\"\n    source: \"timeline\"\n    tweetUrl: \"https://x.com/maojietrading/status/2041880623996887271\"\n    publishedAt: \"2026-04-08T14:07:31.000Z\"\n    preview: \"无论消息面如何干扰，美股市场的脉络一直是很清晰的，我们上周五在YouTube的一周美股复盘视频指出市场变盘即转势，空头崩溃，上周一（本轮最底部，往前翻都有同步）左侧进场多头后逐渐增加多头+出清对冲。\"\n  - id: \"timeline_006\"\n    source: \"timeline\"\n    tweetUrl: \"https://x.com/Sinus84/status/2040478392827412858\"\n    publishedAt: \"2026-04-04T17:15:33.000Z\"\n    preview: \"我自己更常用的检查表只有4个：1）IV 是高估还是低估；2）催化剂在什么时候落地；3）我需要行情多快走出来；4）如果判断错了，最大亏损是否可接受。先做定价判断，再做方向判断，期权交易会稳定很多。4/4\"\n  - id: \"timeline_007\"\n    source: \"timeline\"\n    tweetUrl: \"https://x.com/maojietrading/status/2040518368738816187\"\n    publishedAt: \"2026-04-04T19:54:24.000Z\"\n    preview: \"现在一看IV高的期权都没什么操作的欲望 期权交易里，很多人亏钱不是因为方向看错，而是因为把\\\"高波动率\\\"当成了\\\"高机会\\\"。真正要先判断的不是涨跌，而是：你买的是方向，还是买贵了的预期？1/4\"\n  - id: \"timeline_008\"\n    source: \"timeline\"\n    tweetUrl: \"https://x.com/maojietrading/status/2041599250241314841\"\n    publishedAt: \"2026-04-07T19:29:26.000Z\"\n    preview: \"关键点位怎么用？突破不了日内多单学会灵活止盈，这样不必去跟人家的单，自己就可以判断。另外，我们提供的多仓进场和过夜仓位比例增减也可以供参考和借鉴，如果连续减仓就要注意风险，清仓或增加空头对冲则意味着较熊，连续加仓则意味着较牛的多头行情\"\n",
+                  "samplePreview":  [
+                                        {
+                                            "source":  "timeline",
+                                            "text":  "小哥继续雄起，左侧分批介入的时候历历在目，和25年是一样的，就这么简单，可惜很有一部分人，想拉拉不动，想带也带不动。。所以交易只属于少数人的，如昨天发的X，都是孤独者游戏，坚持自己的数据和判断，杂音拉黑就好。继续mark这个交易记录，留给年老的时候看。\n$COIN 小哥周三盘中涨幅9%+，这是笨猫唯一操作的左侧个股，25年3月也是这么做，200s进场一批，150s进场第二批。本次分四批进场都同步club，也稍后发X，笨猫一直就这么操作的，跟不跟得上就看个人的造化了。X简介里说的很清楚。",
+                                            "publishedAt":  "2026-04-17T14:38:28.000Z",
+                                            "tweetUrl":  "https://x.com/maojietrading/status/2045149902473220395"
+                                        },
+                                        {
+                                            "source":  "timeline",
+                                            "text":  "今天市场太癫了。。。受不了了。。。大科技开始反转。MSFT也是3/30和我们左侧进场meta同一天发出的系统信号，不过那天选择的是meta，继续关注大科技的反转，这将意味着美股常态恢复",
+                                            "publishedAt":  "2026-04-14T16:29:07.000Z",
+                                            "tweetUrl":  "https://x.com/maojietrading/status/2044090583359062519"
+                                        },
+                                        {
+                                            "source":  "timeline",
+                                            "text":  "$INTC 周三创新高，上无阻力，突破了长期下降趋势和震荡横盘走势，不跌破50就会往上不断测试高点。\n\n俺和这只无缘，之前几次操作都不太节奏，这会儿又暴涨，相反COIN和LITE这些就特别顺利。\n\n1，真的得选择自己投缘的个股。2，如果某只个股暴涨而又不是自己的持仓，那么就“他强由他强，明月照大江！”",
+                                            "publishedAt":  "2026-04-08T23:40:34.000Z",
+                                            "tweetUrl":  "https://x.com/maojietrading/status/2042024835631481256"
+                                        },
+                                        {
+                                            "source":  "timeline",
+                                            "text":  "$META 周三终于扬眉吐气，说是发布了自己的LLM。上周一3/30笨猫左侧加了仓，碰巧是这轮最低点，看起来巧合实际是技术指标到位 ，周一价格没跌破但大周期陷入严重超卖，且日线无法跌破，这类背离大约几年都碰不到一次，遇到像META这样的好男人标的，一般来说是机会，可以大胆尝试左侧",
+                                            "publishedAt":  "2026-04-08T19:53:43.000Z",
+                                            "tweetUrl":  "https://x.com/maojietrading/status/2041967746078892304"
+                                        },
+                                        {
+                                            "source":  "timeline",
+                                            "text":  "无论消息面如何干扰，美股市场的脉络一直是很清晰的，我们上周五在YouTube的一周美股复盘视频指出市场变盘即转势，空头崩溃，上周一（本轮最底部，往前翻都有同步）左侧进场多头后逐渐增加多头+出清对冲。",
+                                            "publishedAt":  "2026-04-08T14:07:31.000Z",
+                                            "tweetUrl":  "https://x.com/maojietrading/status/2041880623996887271"
+                                        },
+                                        {
+                                            "source":  "timeline",
+                                            "text":  "我自己更常用的检查表只有4个：1）IV 是高估还是低估；2）催化剂在什么时候落地；3）我需要行情多快走出来；4）如果判断错了，最大亏损是否可接受。先做定价判断，再做方向判断，期权交易会稳定很多。4/4",
+                                            "publishedAt":  "2026-04-04T17:15:33.000Z",
+                                            "tweetUrl":  "https://x.com/Sinus84/status/2040478392827412858"
+                                        },
+                                        {
+                                            "source":  "timeline",
+                                            "text":  "现在一看IV高的期权都没什么操作的欲望\n期权交易里，很多人亏钱不是因为方向看错，而是因为把\"高波动率\"当成了\"高机会\"。真正要先判断的不是涨跌，而是：你买的是方向，还是买贵了的预期？1/4",
+                                            "publishedAt":  "2026-04-04T19:54:24.000Z",
+                                            "tweetUrl":  "https://x.com/maojietrading/status/2040518368738816187"
+                                        },
+                                        {
+                                            "source":  "timeline",
+                                            "text":  "关键点位怎么用？突破不了日内多单学会灵活止盈，这样不必去跟人家的单，自己就可以判断。另外，我们提供的多仓进场和过夜仓位比例增减也可以供参考和借鉴，如果连续减仓就要注意风险，清仓或增加空头对冲则意味着较熊，连续加仓则意味着较牛的多头行情",
+                                            "publishedAt":  "2026-04-07T19:29:26.000Z",
+                                            "tweetUrl":  "https://x.com/maojietrading/status/2041599250241314841"
+                                        }
+                                    ],
+                  "generatedAt":  "2026-04-23T07:56:12.885Z",
+                  "sourcePaths":  {
+                                      "readme":  "H:\\claw\\data-x-traditional\\rag\\README.md",
+                                      "accountConfigDir":  "H:\\claw\\data-x-traditional\\account-configs\\accounts\\account_a",
+                                      "ragLibraryDir":  "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a",
+                                      "soulCandidatePath":  "H:\\claw\\data-x-traditional\\account-configs\\accounts\\account_a\\soul_candidate.md",
+                                      "noteAgentAssetDir":  "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\note-agent"
+                                  }
+              }
+}

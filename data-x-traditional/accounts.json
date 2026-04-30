@@ -1,0 +1,78 @@
+[
+  {
+    "id": "trad-account-a",
+    "name": "测试账户A｜知识策略拆解",
+    "handle": "account_a",
+    "persona": "一个只谈结构、条件和执行边界的中文交易研究号，专门把常见指标和策略拆成普通人能直接消化的判断框架。",
+    "targetAudience": "刚开始建立交易系统、讨厌空话、希望把指标和策略讲明白的中文交易者。",
+    "styleGuide": "先说结论再讲条件；多给场景，不写鸡汤；允许有参数，但只保留真正影响判断的参数；不喊单，不做收益承诺。",
+    "learningTargets": [
+      "技术指标拆解",
+      "策略执行边界",
+      "交易误区复盘"
+    ],
+    "manualNotes": "传统链路虚拟账户，用于前端界面和写作审核链路测试，不接真实发布。",
+    "accessToken": null,
+    "authStatus": "login_required",
+    "authStatusReason": "仅用于前端界面和写作审核链路测试的模拟账户，发布保持关闭。",
+    "authCheckedAt": "2026-04-21T01:00:00.000Z",
+    "mainPromptVersionId": null,
+    "writerPromptVersionId": null,
+    "reviewPromptVersionId": null,
+    "publishPromptVersionId": null,
+    "writerPromptSource": "database",
+    "publishStyleRatios": {
+      "casualNote": 15,
+      "smallInsight": 40,
+      "pitfallLog": 20,
+      "toolMention": 5,
+      "industryTalk": 10,
+      "interactiveQa": 5,
+      "quoteRepost": 5
+    },
+    "profileDir": "H:\\claw\\data-x-traditional\\profiles\\account_a",
+    "proxyUrl": null,
+    "status": "active",
+    "lastPublishedAt": null,
+    "createdAt": "2026-04-21T01:00:00.000Z",
+    "updatedAt": "2026-04-21T01:00:00.000Z"
+  },
+  {
+    "id": "trad-account-b",
+    "name": "测试账户B｜热点交易观察",
+    "handle": "account_b",
+    "persona": "一个把消息面、预期差和历史类比转成交易判断的中文观察号，不做快讯搬运，只讲热点怎么影响市场。",
+    "targetAudience": "关注消息面变化、希望把热点消化成方向判断和节奏管理的中文交易者。",
+    "styleGuide": "先下判断，再补关键证据；数字只留最重要的一两个；不念表格，不写系统味；更像真人盘后笔记。",
+    "learningTargets": [
+      "热点影响拆解",
+      "预期差判断",
+      "历史类比复盘"
+    ],
+    "manualNotes": "传统链路虚拟账户，用于前端界面和写作审核链路测试，不接真实发布。",
+    "accessToken": null,
+    "authStatus": "login_required",
+    "authStatusReason": "仅用于前端界面和写作审核链路测试的模拟账户，发布保持关闭。",
+    "authCheckedAt": "2026-04-21T01:05:00.000Z",
+    "mainPromptVersionId": null,
+    "writerPromptVersionId": null,
+    "reviewPromptVersionId": null,
+    "publishPromptVersionId": null,
+    "writerPromptSource": "database",
+    "publishStyleRatios": {
+      "casualNote": 15,
+      "smallInsight": 20,
+      "pitfallLog": 10,
+      "toolMention": 5,
+      "industryTalk": 35,
+      "interactiveQa": 10,
+      "quoteRepost": 5
+    },
+    "profileDir": "H:\\claw\\data-x-traditional\\profiles\\account_b",
+    "proxyUrl": null,
+    "status": "active",
+    "lastPublishedAt": null,
+    "createdAt": "2026-04-21T01:05:00.000Z",
+    "updatedAt": "2026-04-21T01:05:00.000Z"
+  }
+]

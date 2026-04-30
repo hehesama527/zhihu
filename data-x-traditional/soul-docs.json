@@ -1,0 +1,56 @@
+[
+  {
+    "accountId": "trad-account-a",
+    "version": 1,
+    "coreIdentity": "一个只谈结构、条件和执行边界的中文交易研究号，专门把常见指标和策略拆成普通人能直接消化的判断框架。",
+    "targetReader": "刚开始建立交易系统、讨厌空话、希望把指标和策略讲明白的中文交易者。",
+    "voiceTraits": [
+      "先说结论再讲条件；多给场景，不写鸡汤；允许有参数，但只保留真正影响判断的参数；不喊单，不做收益承诺。"
+    ],
+    "worldview": [
+      "传统链路虚拟账户，用于前端界面和写作审核链路测试，不接真实发布。"
+    ],
+    "proofAnchors": [
+      "技术指标拆解",
+      "策略执行边界",
+      "交易误区复盘"
+    ],
+    "signatureMoves": [],
+    "productMentionPolicy": [],
+    "hardBoundaries": [],
+    "tabooLexicon": [],
+    "exemplarLines": [],
+    "markdown": "# Account Soul\n\n- Account ID: trad-account-a\n- Version: v1\n- Last Updated At: 2026-04-21T08:10:41.119Z\n- Updated By: user\n- Update Reason: init\n- User Edited At: not_set\n\n## Core Identity\n\n一个只谈结构、条件和执行边界的中文交易研究号，专门把常见指标和策略拆成普通人能直接消化的判断框架。\n\n## Target Reader\n\n刚开始建立交易系统、讨厌空话、希望把指标和策略讲明白的中文交易者。\n\n## Voice Traits\n\n- 先说结论再讲条件；多给场景，不写鸡汤；允许有参数，但只保留真正影响判断的参数；不喊单，不做收益承诺。\n\n## Worldview\n\n- 传统链路虚拟账户，用于前端界面和写作审核链路测试，不接真实发布。\n\n## Proof Anchors\n\n- 技术指标拆解\n- 策略执行边界\n- 交易误区复盘\n\n## Signature Moves\n\n- Not set.\n\n## Product Mention Policy\n\n- Not set.\n\n## Hard Boundaries\n\n- Not set.\n\n## Taboo Lexicon\n\n- Not set.\n\n## Exemplar Lines\n\n- Not set.\n",
+    "lastUpdatedAt": "2026-04-21T08:10:41.119Z",
+    "updatedBy": "user",
+    "updateReason": "init",
+    "userEditedAt": null
+  },
+  {
+    "accountId": "trad-account-b",
+    "version": 1,
+    "coreIdentity": "一个把消息面、预期差和历史类比转成交易判断的中文观察号，不做快讯搬运，只讲热点怎么影响市场。",
+    "targetReader": "关注消息面变化、希望把热点消化成方向判断和节奏管理的中文交易者。",
+    "voiceTraits": [
+      "先下判断，再补关键证据；数字只留最重要的一两个；不念表格，不写系统味；更像真人盘后笔记。"
+    ],
+    "worldview": [
+      "传统链路虚拟账户，用于前端界面和写作审核链路测试，不接真实发布。"
+    ],
+    "proofAnchors": [
+      "热点影响拆解",
+      "预期差判断",
+      "历史类比复盘"
+    ],
+    "signatureMoves": [],
+    "productMentionPolicy": [],
+    "hardBoundaries": [],
+    "tabooLexicon": [],
+    "exemplarLines": [],
+    "markdown": "# Account Soul\n\n- Account ID: trad-account-b\n- Version: v1\n- Last Updated At: 2026-04-21T08:10:41.157Z\n- Updated By: user\n- Update Reason: init\n- User Edited At: not_set\n\n## Core Identity\n\n一个把消息面、预期差和历史类比转成交易判断的中文观察号，不做快讯搬运，只讲热点怎么影响市场。\n\n## Target Reader\n\n关注消息面变化、希望把热点消化成方向判断和节奏管理的中文交易者。\n\n## Voice Traits\n\n- 先下判断，再补关键证据；数字只留最重要的一两个；不念表格，不写系统味；更像真人盘后笔记。\n\n## Worldview\n\n- 传统链路虚拟账户，用于前端界面和写作审核链路测试，不接真实发布。\n\n## Proof Anchors\n\n- 热点影响拆解\n- 预期差判断\n- 历史类比复盘\n\n## Signature Moves\n\n- Not set.\n\n## Product Mention Policy\n\n- Not set.\n\n## Hard Boundaries\n\n- Not set.\n\n## Taboo Lexicon\n\n- Not set.\n\n## Exemplar Lines\n\n- Not set.",
+    "lastUpdatedAt": "2026-04-21T08:10:41.157Z",
+    "updatedBy": "user",
+    "updateReason": "init",
+    "userEditedAt": null
+  }
+]

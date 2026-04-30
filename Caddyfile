@@ -1,0 +1,48 @@
+# Caddy 配置文件 - 生产环境身份验证统一入口
+# 用法：
+# 1. 安装 Caddy: https://caddyserver.com/docs/install#windows
+# 2. 生成 Basic Auth 密码哈希：caddy hash-password --plaintext "你的强密码"
+# 3. 将下方 $2a$14$REPLACE_WITH_BCRYPT_HASH 替换为实际哈希值
+# 4. 启动 Caddy: caddy run --config Caddyfile
+# 5. 或使用 PM2 托管：pm2 start caddy --name caddy-proxy -- "caddy" "run" "--config" "Caddyfile"
+
+# 请将 ops.example.com 替换为你的实际域名
+ops.example.com {
+    # 启用 Gzip 和 Zstandard 压缩
+    encode gzip zstd
+
+    # Basic Auth 配置 - 保护所有路由
+    # 用户名：admin（可修改）
+    # 密码：需要使用 caddy hash-password 生成 bcrypt 哈希
+    basic_auth {
+        admin $2a$14$REPLACE_WITH_BCRYPT_HASH
+    }
+
+    # X API 路由 - /x-api/* -> 127.0.0.1:8788
+    @xapi path /x-api/*
+    handle_path @xapi {
+        reverse_proxy 127.0.0.1:8788
+    }
+
+    # X Traditional API 路由 - /x-traditional-api/* -> 127.0.0.1:8791
+    @xtraditionalapi path /x-traditional-api/*
+    handle_path @xtraditionalapi {
+        reverse_proxy 127.0.0.1:8791
+    }
+
+    # Zhihu API 路由 - /api/* -> 127.0.0.1:8787
+    @api path /api/*
+    handle_path @api {
+        reverse_proxy 127.0.0.1:8787
+    }
+
+    # Web 页面 - /* -> 127.0.0.1:3000
+    handle {
+        reverse_proxy 127.0.0.1:3000
+    }
+}
+
+# 如果需要 HTTP 自动跳转到 HTTPS，可以添加：
+# http://ops.example.com {
+#     redir https://ops.example.com{uri} permanent
+# }

@@ -2,14 +2,23 @@ import type { PromptSnapshotMap, TopicPriority, TopicValidityStatus } from "@zhi
 import { getAppConfig } from "../config/env.js";
 import { TopicRepository } from "../repositories/topic-repository.js";
 import { normalizeZhihuQuestionUrl } from "../utils/zhihu-url.js";
-import { type AccountPromptContext, buildTopicPromptSuffix } from "./account-prompt-context.js";
+import {
+  type AccountPromptContext,
+  buildTopicPromptSuffix,
+  buildTopicSoulPromptSuffix,
+  buildTopicTargetProductPromptSuffix,
+  joinPromptSuffixes
+} from "./account-prompt-context.js";
 import { BrowserSkillService } from "./browser-skill-service.js";
 import { LlmService } from "./llm-service.js";
 import { SessionService } from "./session-service.js";
+import { TopicBatchPlannerService } from "./topic-batch-planner-service.js";
+import { ZhihuAgentContextService } from "./zhihu-agent-context-service.js";
 
 const TOPIC_BATCH_SIZE = 10;
-const DISCOVERY_LINK_LIMIT = 10;
-const TOPIC_PREFILTER_BATCH_TIMEOUT_MS = 60_000;
+const TOPIC_WIDE_POOL_SIZE = 30;
+const DISCOVERY_LINK_LIMIT = 30;
+const TOPIC_PREFILTER_BATCH_TIMEOUT_MS = 120_000;
 
 type DiscoveryCandidate = {
   candidateId: number;
@@ -34,6 +43,15 @@ type TopicAgentPrefilterOutput = {
   persona_hooks: string[];
   soft_promo_mode: string;
   soft_promo_reason: string;
+  should_include_soft_promo: boolean;
+  soft_promo_directive: {
+    should_include: boolean;
+    mode: string;
+    reason: string;
+    product_anchor: string;
+    writer_instruction: string;
+  };
+  writing_plan: TopicWritingPlan;
   must_avoid: string[];
   risk_notes: string[];
   topic_fingerprint: {
@@ -42,6 +60,21 @@ type TopicAgentPrefilterOutput = {
     target_pain: string;
     promo_entry: string;
   };
+};
+
+type TopicWritingPlan = {
+  length_mode: "short" | "standard" | "long";
+  target_words_min: number;
+  target_words_max: number;
+  structure_mode: string;
+  should_use_cases: boolean;
+  case_style: "none" | "typical_composite" | "personal_reflection" | "contrast_cases";
+  should_include_calculation: boolean;
+  should_include_list: boolean;
+  should_use_bold: boolean;
+  bold_targets: string[];
+  suggested_sections: string[];
+  writer_notes: string;
 };
 
 type TopicAgentPrefilterBatchOutput = {
@@ -53,18 +86,24 @@ type TopicAgentPrefilterBatchOutput = {
 };
 
 export class TopicDiscoveryService {
+  private readonly agentContextService = new ZhihuAgentContextService();
+  private readonly topicBatchPlannerService: TopicBatchPlannerService;
+
   constructor(
     private readonly topicRepository: TopicRepository,
     private readonly browserSkillService: BrowserSkillService,
     private readonly sessionService: SessionService,
     private readonly llmService: LlmService
-  ) {}
+  ) {
+    this.topicBatchPlannerService = new TopicBatchPlannerService(llmService, topicRepository);
+  }
 
   async harvestCandidates(input: {
     accountId: number;
     profileDir: string;
     promptSnapshot?: PromptSnapshotMap | null;
     accountContext?: AccountPromptContext | null;
+    accountSoulMarkdown?: string | null;
   }) {
     await this.topicRepository.reconcileAcceptedCandidateStatuses();
     await this.topicRepository.markAnsweredHistoryCandidates(input.accountId);
@@ -96,7 +135,7 @@ export class TopicDiscoveryService {
         accountName: input.accountContext?.accountName ?? null
       });
 
-      let remaining = TOPIC_BATCH_SIZE;
+      let remaining = TOPIC_WIDE_POOL_SIZE;
       const pastTopicFingerprints = await this.topicRepository.getRecentPublishedTopicFingerprints(10, input.accountId);
       const discoveredCandidateIds = new Set<number>();
 
@@ -114,7 +153,8 @@ export class TopicDiscoveryService {
         remaining,
         input.promptSnapshot,
         pastTopicFingerprints,
-        input.accountContext
+        input.accountContext,
+        input.accountSoulMarkdown
       );
 
       if (remaining > 0) {
@@ -132,7 +172,8 @@ export class TopicDiscoveryService {
           remaining,
           input.promptSnapshot,
           pastTopicFingerprints,
-          input.accountContext
+          input.accountContext,
+          input.accountSoulMarkdown
         );
       }
 
@@ -153,11 +194,19 @@ export class TopicDiscoveryService {
           input.accountId,
           discoveredCandidateIds,
           remaining,
-          input.promptSnapshot,
-          pastTopicFingerprints,
-          input.accountContext
-        );
+            input.promptSnapshot,
+            pastTopicFingerprints,
+            input.accountContext,
+            input.accountSoulMarkdown
+          );
       }
+
+      await this.keepTopTopicsAfterWideSelection({
+        accountId: input.accountId,
+        promptSnapshot: input.promptSnapshot,
+        accountContext: input.accountContext,
+        accountSoulMarkdown: input.accountSoulMarkdown
+      });
 
       return this.topicRepository.countActiveCandidates(input.accountId);
     } finally {
@@ -174,7 +223,8 @@ export class TopicDiscoveryService {
     remaining: number,
     promptSnapshot: PromptSnapshotMap | null | undefined,
     pastTopicFingerprints: unknown[],
-    accountContext?: AccountPromptContext | null
+    accountContext?: AccountPromptContext | null,
+    accountSoulMarkdown?: string | null
   ) {
     const pending: DiscoveryCandidate[] = [];
 
@@ -227,7 +277,8 @@ export class TopicDiscoveryService {
       pending,
       promptSnapshot,
       pastTopicFingerprints,
-      accountContext
+      accountContext,
+      accountSoulMarkdown
     );
     let added = 0;
 
@@ -278,17 +329,60 @@ export class TopicDiscoveryService {
     return added;
   }
 
+  private async keepTopTopicsAfterWideSelection(input: {
+    accountId: number;
+    promptSnapshot: PromptSnapshotMap | null | undefined;
+    accountContext?: AccountPromptContext | null;
+    accountSoulMarkdown?: string | null;
+  }) {
+    const openCandidates = await this.topicRepository.listOpenCandidates(TOPIC_WIDE_POOL_SIZE, input.accountId);
+    if (openCandidates.length <= TOPIC_BATCH_SIZE) {
+      return;
+    }
+
+    const rankedCandidates = await this.topicBatchPlannerService.rankCandidatePool(
+      openCandidates,
+      input.promptSnapshot,
+      input.accountContext,
+      input.accountSoulMarkdown
+    );
+    const keepCandidateIds = new Set(rankedCandidates.slice(0, TOPIC_BATCH_SIZE).map((candidate) => candidate.id));
+
+    for (const candidate of openCandidates) {
+      if (keepCandidateIds.has(candidate.id)) {
+        continue;
+      }
+
+      await this.topicRepository.markCandidateBlocked(
+        candidate.id,
+        "海选后二次筛选未进入前10：按流量潜力、产品适配度、情绪强度和账号契合度综合降级。"
+      );
+    }
+  }
+
   private async runTopicPrefilterBatch(
     candidates: DiscoveryCandidate[],
     promptSnapshot: PromptSnapshotMap | null | undefined,
     pastTopicFingerprints: unknown[],
-    accountContext?: AccountPromptContext | null
+    accountContext?: AccountPromptContext | null,
+    accountSoulMarkdown?: string | null
   ) {
+    const agentContextDocuments = await this.agentContextService.ensureDocuments();
     const basePrompt = await this.llmService.resolvePrompt("topic_agent", {
       promptSnapshot,
-      promptSuffix: buildTopicPromptSuffix(accountContext)
+      promptSuffix: joinPromptSuffixes(
+        buildTopicPromptSuffix(accountContext),
+        buildTopicSoulPromptSuffix(accountSoulMarkdown),
+        buildTopicTargetProductPromptSuffix(agentContextDocuments)
+      )
     });
     const batchPrompt = `${basePrompt}
+
+Case-driven planning rule:
+1. For crypto, trading, altcoin, contract, strategy, backtesting, risk-control, trading-psychology, capital-size, and stable-profit topics, set writing_plan.should_use_cases=true by default unless the question is only a narrow factual definition.
+2. If sourceContext, backend case_research, user notes, title, or candidate context contains a concrete market case, price path, token path, liquidation story, or user-provided example, preserve it in recommended_angle or writing_plan.writer_notes for Writer.
+3. A usable case must include time/price path or market setup, why a retail trader enters, position or budget, long/short temptation, action deformation such as chasing/holding/stop-loss failure, result pressure, and review takeaway.
+4. User-provided examples are style/quality references, not reusable copy. Do not keep reusing the same token, same price path, same story arc, or same wording across different answers.
 
 补充说明：
 1. 你现在执行的是 Topic Agent 的“批量标题预筛模式”，不是单题最终定稿模式。
@@ -299,11 +393,30 @@ export class TopicDiscoveryService {
 6. priority 只对 validity_status = "valid" 的题目有实际意义；如果你认为该题无效，priority 统一输出 SKIP。
 7. 如果信息不足，但标题并不明显无效，你也可以保守输出 valid，并给较低 fit_score 与 P2。
 8. recommended_answer、invite_answer、keyword_search 都只是信号，不是硬规则。
-9. 选题覆盖要兼顾三类：币圈、交易、量化。默认倾向是币圈 ≈ 交易 > 量化，但不要拉开太大。
-10. 币圈类和交易类标题，只要能自然承接到市场判断、风险管理、策略验证、历史相似走势、交易复盘，就不要因为不够“量化”而轻易打低。
-11. 纯量化题不再天然优先，只有当用户痛点更清晰、产品承接更自然时，才给更高 priority 或 fit_score。
-12. 你必须为每个 candidate_id 输出且只输出一次结果。
-13. 只输出 JSON，不要解释，不要 Markdown。
+9. 选题覆盖要从 product.md、target.md 和 Account Soul 一起判断，不要只盯“量化/回测”关键词。
+10. 当前流程是“先海选，再二次筛选”。预筛阶段不要过早收窄，只要标题属于币圈、形态、AI交易、交易心态、风控复盘等可写范围，且不是明显无关/违规/极冷工程题，可以先 valid 进入海选池。
+11. 二次筛选会按流量潜力、产品/内容适配度、情绪强度、账号契合度保留前10。你的预筛输出也要体现这些判断。
+12. 内容重心放在币圈：炒币、合约、杠杆、山寨币、主流币、行情结构、K 线形态、交易心态、风控、复盘、踩坑和交易决策错误。
+13. 在方向符合时，尽量选流量更高的题：痛点更大众、讨论空间更大、搜索需求更稳定、标题更像真实用户会点的问题，应优先于很冷、很窄、很工程化的问题。
+14. 情绪强的问题可以多保留，例如亏损、爆仓、追涨被套、不会止损、怕错过、合约上头、AI 交易焦虑、形态误判、一直亏还要不要坚持。这类题即使不软广，也能作为高价值内容。
+15. 形态识别/技术形态教学类题可以回复，也可以自然加入软广。重点是讲清形态如何识别、为什么容易误判、如何结合量价结构和历史数据验证，不要写成指标百科。
+16. AI 和交易联动类题可以回复，也可以自然加入软广。重点是 AI 辅助解释指标、生成策略条件、解读回测结果、发现风险点；严禁暗示 AI 能预测行情、喊单或替用户自动交易。
+17. 纯量化工作流不再作为有效选题方向。题目如果主要是在讨论量化工程流程、策略快速上线、深度优化、参数调优、研究 pipeline、团队研发效率，而不是币圈交易者的真实交易痛点，validity_status 应倾向 invalid 或 priority=SKIP。
+18. 泛交易心态题可以保留，例如外汇交易者为什么亏损、如何避免成为韭菜这类题；但必须把它当作交易经验分享题处理，重点讲人性、纪律、仓位、亏损路径和复盘，不要强行转成产品软广。
+19. 泛交易心态题默认 should_include_soft_promo=false、soft_promo_mode=none、topic_fingerprint.promo_entry=none，除非题目本身明确问工具、回测、监控、策略验证或复盘系统。
+20. 软广需要有节奏，不要每条都带。整体按约 10 条里 7 条自然带产品、3 条纯分享/纯经验/纯观点来控制。
+21. 如果适合，把 should_include_soft_promo 设为 true，soft_promo_mode 设为 light 或 natural，并用 soft_promo_directive.writer_instruction 明确告诉 Writer 这篇需要自然加入 CryptoPathX。
+22. 如果不适合，把 should_include_soft_promo 设为 false，soft_promo_mode 设为 none，topic_fingerprint.promo_entry 写 none，并用 soft_promo_directive.writer_instruction 告诉 Writer 不强制加入软广，不要硬带 CryptoPathX。
+23. 只有当 CryptoPathX 的真实能力能解决标题里的具体一步时，才允许 should_include_soft_promo=true；不要因为业务目标需要推广就默认每篇都带。
+24. 必须为每个有效选题输出 writing_plan，决定正文长度、是否需要案例、是否需要算账、是否适合列表/短标题、哪些重点需要加粗。
+25. length_mode 选择规则：简单知识问答用 short；普通方法题用 standard；交易经历、弯路复盘、新手入门、小本金、策略方法论、软文承接空间大的题用 long。
+26. 字数规则：target_words_min 是 Writer 必须达到的硬下限；target_words_max 只是软参考，可以超过，不能为了压字数牺牲案例、算账和信息密度。
+27. 案例规则：只有题目适合故事化时 should_use_cases=true；没有真实输入证据时 case_style 用 typical_composite 或 contrast_cases，可以要求 Writer 写接近真实的复合案例，但不要要求伪造真实朋友经历。
+28. 数据规则：案例里的胜率、回撤、盈亏比、仓位、手续费、滑点等数字要贴近真实市场常识、保守且自洽，不要要求精确历史统计。
+29. 加粗规则：standard/long 文章默认 should_use_bold=true，bold_targets 应指定 2-5 类重点，如核心结论、风险边界、算账结论、操作原则、产品边界。
+30. suggested_sections 是结构提示，不是要求 Writer 原样使用的标题；避免反复输出“先说结论/最后补一句”这类固定模板。
+31. 你必须为每个 candidate_id 输出且只输出一次结果。
+32. 只输出 JSON，不要解释，不要 Markdown。
 
 输出格式：
 {
@@ -324,6 +437,28 @@ export class TopicDiscoveryService {
       "persona_hooks": ["适合强化人设的细节"],
       "soft_promo_mode": "none | light | natural",
       "soft_promo_reason": "为什么适合或不适合自然植入",
+      "should_include_soft_promo": false,
+      "soft_promo_directive": {
+        "should_include": false,
+        "mode": "none | light | natural",
+        "reason": "选题层面的软广适配判断",
+        "product_anchor": "适合植入时写具体承接点，不适合写空字符串",
+        "writer_instruction": "给 Writer 的明确执行指令"
+      },
+      "writing_plan": {
+        "length_mode": "short | standard | long",
+        "target_words_min": 900,
+        "target_words_max": 1300,
+        "structure_mode": "例如：开头判断 + 典型案例 + 算账 + 具体做法 + 克制收口",
+        "should_use_cases": false,
+        "case_style": "none | typical_composite | personal_reflection | contrast_cases",
+        "should_include_calculation": false,
+        "should_include_list": false,
+        "should_use_bold": true,
+        "bold_targets": ["核心结论", "风险边界", "算账结论"],
+        "suggested_sections": ["开头判断", "典型情况", "算账段", "具体做法", "克制收口"],
+        "writer_notes": "给 Writer 的长度、案例和结构执行提醒"
+      },
       "must_avoid": ["绝对不能写的点"],
       "risk_notes": ["平台风险或理解风险"],
       "topic_fingerprint": {
@@ -414,7 +549,26 @@ export class TopicDiscoveryService {
         ? 0
         : normalizeFitScore(output.fit_score, fallback.fit_score);
 
-    return {
+    const rawMode = normalizeSoftPromoMode(output.soft_promo_mode, fallback.soft_promo_mode);
+    const shouldInclude =
+      normalizedValidityStatus === "valid" &&
+      (typeof output.should_include_soft_promo === "boolean"
+        ? output.should_include_soft_promo
+        : rawMode === "light" || rawMode === "natural");
+    const softPromoMode = shouldInclude ? (rawMode === "none" ? "light" : rawMode) : "none";
+    const rawPromoEntry = normalizeString(output.topic_fingerprint?.promo_entry, "none");
+    const softPromoReason = normalizeString(
+      output.soft_promo_reason,
+      shouldInclude ? "该选题与产品真实能力存在自然承接点。" : fallback.soft_promo_reason
+    );
+    const softPromoDirective = normalizeSoftPromoDirective(output.soft_promo_directive, {
+      shouldInclude,
+      mode: softPromoMode,
+      reason: softPromoReason,
+      productAnchor: shouldInclude && rawPromoEntry !== "none" ? rawPromoEntry : ""
+    });
+
+    const normalized: TopicAgentPrefilterOutput = {
       validity_status: normalizedValidityStatus,
       validity_reason: normalizedValidityReason,
       title: normalizeString(output.title, candidate.questionTitle),
@@ -427,8 +581,11 @@ export class TopicDiscoveryService {
       pain_points: normalizeStringArray(output.pain_points),
       recommended_angle: normalizeString(output.recommended_angle, fallback.recommended_angle),
       persona_hooks: normalizeStringArray(output.persona_hooks),
-      soft_promo_mode: normalizeSoftPromoMode(output.soft_promo_mode, fallback.soft_promo_mode),
-      soft_promo_reason: normalizeString(output.soft_promo_reason, fallback.soft_promo_reason),
+      soft_promo_mode: softPromoMode,
+      soft_promo_reason: softPromoReason,
+      should_include_soft_promo: shouldInclude,
+      soft_promo_directive: softPromoDirective,
+      writing_plan: normalizeWritingPlan(output.writing_plan, fallback.writing_plan),
       must_avoid: normalizeStringArray(output.must_avoid),
       risk_notes: mergeUniqueStrings([
         ...normalizeStringArray(output.risk_notes),
@@ -438,9 +595,24 @@ export class TopicDiscoveryService {
         problem_core: normalizeString(output.topic_fingerprint?.problem_core, candidate.questionTitle),
         answer_angle: normalizeString(output.topic_fingerprint?.answer_angle, ""),
         target_pain: normalizeString(output.topic_fingerprint?.target_pain, ""),
-        promo_entry: normalizeString(output.topic_fingerprint?.promo_entry, "none")
+        promo_entry: shouldInclude ? rawPromoEntry || softPromoDirective.product_anchor || "待 Writer 自然确认" : "none"
       }
     };
+
+    normalized.writing_plan = applyCaseDrivenWritingPlanDefaults(
+      normalized.writing_plan,
+      [
+        candidate.questionTitle,
+        normalized.title,
+        normalized.summary,
+        normalized.question_type,
+        normalized.recommended_angle,
+        normalized.pain_points.join("\n"),
+        normalized.persona_hooks.join("\n")
+      ].join("\n")
+    );
+
+    return normalized;
   }
 
   private buildFallbackTopicCard(candidate: DiscoveryCandidate, fallbackReason?: string | null): TopicAgentPrefilterOutput {
@@ -460,7 +632,15 @@ export class TopicDiscoveryService {
       recommended_angle: "",
       persona_hooks: [],
       soft_promo_mode: "none",
-      soft_promo_reason: "",
+      soft_promo_reason: "预筛兜底结果未确认软广契合点。",
+      should_include_soft_promo: false,
+      soft_promo_directive: buildSoftPromoDirective({
+        shouldInclude: false,
+        mode: "none",
+        reason: "预筛兜底结果未确认软广契合点。",
+        productAnchor: ""
+      }),
+      writing_plan: buildFallbackWritingPlan(),
       must_avoid: [],
       risk_notes: fallbackReason ? [fallbackReason] : [],
       topic_fingerprint: {
@@ -518,20 +698,242 @@ function normalizeStringArray(value: unknown) {
     : [];
 }
 
+const CASE_DRIVEN_TOPIC_PATTERNS = [
+  /\u5e01\u5708/u,
+  /\u7092\u5e01/u,
+  /\u5c71\u5be8\u5e01/u,
+  /\u52a0\u5bc6\u8d27\u5e01/u,
+  /\u4ea4\u6613/u,
+  /\u91cf\u5316/u,
+  /\u7b56\u7565/u,
+  /\u56de\u6d4b/u,
+  /\u5408\u7ea6/u,
+  /\u6760\u6746/u,
+  /\u4ed3\u4f4d/u,
+  /\u6b62\u635f/u,
+  /\u505a\u591a|\u505a\u7a7a/u,
+  /\u5fc3\u6001/u,
+  /\u5f2f\u8def/u,
+  /\u7a33\u5b9a\u76c8\u5229/u,
+  /\u76c8\u4e8f|\u56de\u64a4|\u6ed1\u70b9|\u7206\u4ed3/u,
+  /\b(?:BTC|ETH|Crypto|RSI|MACD|K\u7ebf|U)\b/iu
+];
+
+function shouldUseCaseDrivenDefaults(seedText: string) {
+  return CASE_DRIVEN_TOPIC_PATTERNS.some((pattern) => pattern.test(seedText));
+}
+
+function appendCaseWriterNote(existing: string) {
+  const note =
+    "Case-driven default: for crypto/trading topics, make at least one concrete case carry the core argument. Prefer source/user-provided cases or backend case_research when available; otherwise use a realistic composite case with price/time path, entry trigger, position or budget, long/short temptation, stop-loss/action deformation, outcome pressure, and review takeaway. Do not keep reusing the same token, story arc, or reference wording across different answers.";
+
+  if (!existing) {
+    return note;
+  }
+  if (existing.includes("Case-driven default")) {
+    return existing;
+  }
+  return `${existing}\n${note}`;
+}
+
+function appendUniqueItems(existing: string[], items: string[]) {
+  const next = [...existing];
+  for (const item of items) {
+    if (!next.includes(item)) {
+      next.push(item);
+    }
+  }
+  return next;
+}
+
+function applyCaseDrivenWritingPlanDefaults(plan: TopicWritingPlan, seedText: string): TopicWritingPlan {
+  if (!shouldUseCaseDrivenDefaults(seedText)) {
+    return plan;
+  }
+
+  const targetMin = Math.max(plan.target_words_min, 2200);
+  const targetMax = Math.max(plan.target_words_max, 3500, targetMin);
+
+  return {
+    ...plan,
+    length_mode: plan.length_mode === "short" ? "standard" : "long",
+    target_words_min: Math.min(targetMin, 2600),
+    target_words_max: Math.min(Math.max(targetMax, 3500), 5000),
+    structure_mode: plan.structure_mode
+      ? `${plan.structure_mode} + case action chain`
+      : "direct judgment + concrete case action chain + calculation/review + practical boundary",
+    should_use_cases: true,
+    case_style: plan.case_style === "none" ? "typical_composite" : plan.case_style,
+    should_include_calculation: true,
+    should_use_bold: true,
+    bold_targets: appendUniqueItems(plan.bold_targets, [
+      "core judgment",
+      "risk boundary",
+      "case takeaway",
+      "operating principle"
+    ]).slice(0, 6),
+    suggested_sections: appendUniqueItems(plan.suggested_sections, [
+      "concrete case",
+      "action chain",
+      "review takeaway"
+    ]).slice(0, 10),
+    writer_notes: appendCaseWriterNote(plan.writer_notes)
+  };
+}
+
+function buildFallbackWritingPlan(): TopicWritingPlan {
+  return {
+    length_mode: "standard",
+    target_words_min: 2200,
+    target_words_max: 3500,
+    structure_mode: "开头判断 + 具体理由 + 方法建议 + 克制收口",
+    should_use_cases: false,
+    case_style: "none",
+    should_include_calculation: false,
+    should_include_list: false,
+    should_use_bold: true,
+    bold_targets: ["核心结论", "风险边界", "算账结论", "操作原则"],
+    suggested_sections: ["开头判断", "核心原因", "具体做法", "克制收口"],
+    writer_notes: "按题目自然展开，target_words_min 是硬下限；不要为了长度重复观点。"
+  };
+}
+
+function normalizeWritingPlan(value: unknown, fallback: TopicWritingPlan): TopicWritingPlan {
+  const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const lengthMode =
+    record.length_mode === "short" || record.length_mode === "standard" || record.length_mode === "long"
+      ? record.length_mode
+      : fallback.length_mode;
+  const defaultRange =
+    lengthMode === "long"
+      ? { min: 2200, max: 3500 }
+      : lengthMode === "short"
+        ? { min: 800, max: 1200 }
+        : { min: 1800, max: 3000 };
+  const min = normalizeWordCount(record.target_words_min, fallback.target_words_min || defaultRange.min, 2600);
+  const max = normalizeWordCount(record.target_words_max, fallback.target_words_max || defaultRange.max, 5000);
+  const caseStyle =
+    record.case_style === "typical_composite" ||
+    record.case_style === "personal_reflection" ||
+    record.case_style === "contrast_cases" ||
+    record.case_style === "none"
+      ? record.case_style
+      : fallback.case_style;
+  const suggestedSections = normalizeStringArray(record.suggested_sections);
+
+  return {
+    length_mode: lengthMode,
+    target_words_min: Math.min(min, max),
+    target_words_max: Math.max(min, max),
+    structure_mode: normalizeString(record.structure_mode, fallback.structure_mode),
+    should_use_cases:
+      typeof record.should_use_cases === "boolean"
+        ? record.should_use_cases
+        : fallback.should_use_cases,
+    case_style: caseStyle,
+    should_include_calculation:
+      typeof record.should_include_calculation === "boolean"
+        ? record.should_include_calculation
+        : fallback.should_include_calculation,
+    should_include_list:
+      typeof record.should_include_list === "boolean"
+        ? record.should_include_list
+        : fallback.should_include_list,
+    should_use_bold:
+      typeof record.should_use_bold === "boolean"
+        ? record.should_use_bold
+        : fallback.should_use_bold,
+    bold_targets: normalizeStringArray(record.bold_targets).length
+      ? normalizeStringArray(record.bold_targets).slice(0, 6)
+      : fallback.bold_targets,
+    suggested_sections: suggestedSections.length ? suggestedSections.slice(0, 10) : fallback.suggested_sections,
+    writer_notes: normalizeString(record.writer_notes, fallback.writer_notes)
+  };
+}
+
+function normalizeWordCount(value: unknown, fallback: number, maxValue = 5000) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+
+  return Math.max(400, Math.min(maxValue, Math.round(numeric)));
+}
+
 function normalizePriority(value: unknown, fallback: TopicPriority): TopicPriority {
   return value === "P0" || value === "P1" || value === "P2" || value === "SKIP" ? value : fallback;
 }
 
 function normalizeFitScore(value: unknown, fallback: number) {
-  if (typeof value !== "number" || Number.isNaN(value)) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
     return fallback;
   }
 
-  return Math.max(0, Math.min(100, Math.round(value)));
+  const normalized = numeric > 0 && numeric <= 1 ? numeric * 100 : numeric;
+  return Math.max(0, Math.min(100, Math.round(normalized)));
 }
 
 function normalizeSoftPromoMode(value: unknown, fallback: string) {
   return value === "none" || value === "light" || value === "natural" ? value : fallback;
+}
+
+function normalizeSoftPromoDirective(
+  value: unknown,
+  fallback: {
+    shouldInclude: boolean;
+    mode: string;
+    reason: string;
+    productAnchor: string;
+  }
+) {
+  const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const shouldInclude =
+    typeof record.should_include === "boolean" ? record.should_include : fallback.shouldInclude;
+  const mode = shouldInclude ? normalizeSoftPromoMode(record.mode, fallback.mode) : "none";
+  const reason = normalizeString(record.reason, fallback.reason);
+  const productAnchor = normalizeString(record.product_anchor, fallback.productAnchor);
+  const writerInstruction = normalizeString(
+    record.writer_instruction,
+    buildSoftPromoWriterInstruction({ shouldInclude, mode, reason, productAnchor })
+  );
+
+  return {
+    should_include: shouldInclude,
+    mode,
+    reason,
+    product_anchor: shouldInclude ? productAnchor : "",
+    writer_instruction: writerInstruction
+  };
+}
+
+function buildSoftPromoDirective(input: {
+  shouldInclude: boolean;
+  mode: string;
+  reason: string;
+  productAnchor: string;
+}) {
+  return {
+    should_include: input.shouldInclude,
+    mode: input.shouldInclude ? input.mode : "none",
+    reason: input.reason,
+    product_anchor: input.shouldInclude ? input.productAnchor : "",
+    writer_instruction: buildSoftPromoWriterInstruction(input)
+  };
+}
+
+function buildSoftPromoWriterInstruction(input: {
+  shouldInclude: boolean;
+  mode: string;
+  reason: string;
+  productAnchor: string;
+}) {
+  if (!input.shouldInclude) {
+    return "Topic Agent 判断该选题不适合强制加入软广。Writer 应优先把问题回答完整，不要为了推广硬带 CryptoPathX。";
+  }
+
+  const anchor = input.productAnchor ? `承接点：${input.productAnchor}。` : "";
+  return `Topic Agent 判断该选题适合自然加入软广，Writer 需要在不破坏回答价值的前提下自然提到 CryptoPathX。${anchor}原因：${input.reason}`;
 }
 
 function normalizeValidityStatus(value: unknown, fallback: TopicValidityStatus): TopicValidityStatus {

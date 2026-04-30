@@ -1,5 +1,6 @@
+// 浏览器端只能使用 NEXT_PUBLIC_* 或代理路径，不能暴露内部地址
 const FALLBACK_CLIENT_API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? process.env.API_BASE_URL ?? "http://127.0.0.1:8787";
+  process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
 
 declare global {
   interface Window {
@@ -29,12 +30,11 @@ export async function fetchClientResponse(path: string, init?: RequestInit) {
       payload
     };
   } catch (error) {
-    throw new Error(buildNetworkErrorMessage(path, error));
+    throw new Error(buildNetworkErrorMessage(path, error, apiBaseUrl));
   }
 }
 
-export function buildNetworkErrorMessage(path: string, error: unknown) {
-  const apiBaseUrl = getClientApiBaseUrl();
+export function buildNetworkErrorMessage(path: string, error: unknown, apiBaseUrl = getClientApiBaseUrl()) {
   const rawMessage = error instanceof Error ? error.message : String(error);
 
   return [

@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { modelCenterAgentNames } from "@zhihu-mvp/shared";
 import { getAppConfig } from "../config/env.js";
 import { createOpenAiClient, readLlmRuntimeConfig, type LlmRuntimeConfig } from "../config/llm-provider.js";
 import { JobRepository } from "../repositories/job-repository.js";
@@ -29,6 +30,7 @@ type HumanizerContext = {
   publishAttemptId?: number | null;
   stage?: string | null;
   agentName?: string;
+  extraSystemPrompt?: string | null;
 };
 
 export class HumanizerService {
@@ -41,8 +43,9 @@ export class HumanizerService {
       stage: context?.stage ?? "humanizing",
       contentLength: content.length
     });
-    const client = createOpenAiClient();
-    const runtime = readLlmRuntimeConfig();
+    const runtimeTarget = resolveHumanizerRuntimeTarget(context?.agentName);
+    const client = createOpenAiClient(runtimeTarget);
+    const runtime = readLlmRuntimeConfig(runtimeTarget);
     const prompt = loadHumanizerPrompt();
     let rawResponseText: string | null = null;
     let repairedResponseText: string | null = null;
@@ -56,16 +59,7 @@ export class HumanizerService {
       const response = await createLlmTextResponse(
         client,
         runtime,
-        [
-          {
-            role: "system",
-            content: prompt
-          },
-          {
-            role: "user",
-            content
-          }
-        ],
+        buildHumanizerMessages(prompt, content, context?.extraSystemPrompt),
         {
           initialResponseTimeoutMs: HUMANIZER_TIMEOUT_MS
         }
@@ -164,6 +158,30 @@ export class HumanizerService {
   }
 }
 
+function buildHumanizerMessages(prompt: string, content: string, extraSystemPrompt?: string | null) {
+  const messages: Array<{ role: "system" | "user"; content: string }> = [
+    {
+      role: "system",
+      content: prompt
+    }
+  ];
+
+  const normalizedExtraPrompt = extraSystemPrompt?.trim();
+  if (normalizedExtraPrompt) {
+    messages.push({
+      role: "system",
+      content: normalizedExtraPrompt
+    });
+  }
+
+  messages.push({
+    role: "user",
+    content
+  });
+
+  return messages;
+}
+
 function loadHumanizerPrompt() {
   if (cachedHumanizerPrompt) {
     return cachedHumanizerPrompt;
@@ -182,8 +200,12 @@ function loadHumanizerPrompt() {
 1. 严格遵守上面的 humanizer-zh 规则。
 2. 不得改变事实边界、观点边界和核心结论。
 3. 不得新增虚构数据。
-4. 输出必须是 JSON，不要 Markdown，不要解释。
-5. 输出格式固定为：
+4. 不要把“去 AI 味”理解为压缩正文。默认保留原文信息量，处理后长度不要低于原文的 85%，除非原文有明显重复废话。
+5. 必须保留发布结构：如果原文有 **加粗** 重点，至少保留大部分加粗标记；如果原文有短列表、步骤清单或自检问题，不要全部改成普通段落。
+6. 必须保留产品名、同类工具名、关键数字、仓位公式、胜率、盈亏比、最大回撤、止损比例等事实信息。
+7. 可以调整句式、连接词、段落节奏和口语感，但不要删除 Topic/Review 可能依赖的结构锚点，例如粗体重点、列表、案例动作链和算账段。
+8. 输出必须是 JSON，不要 Markdown，不要解释。
+9. 输出格式固定为：
 {
   "content": "处理后的正文",
   "notes": ["说明做了哪些自然化处理"]
@@ -415,4 +437,12 @@ function unwrapJsonFenceForRecovery(value: string) {
 
 function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function resolveHumanizerRuntimeTarget(agentName?: string) {
+  if (agentName && modelCenterAgentNames.includes(agentName as (typeof modelCenterAgentNames)[number])) {
+    return agentName as (typeof modelCenterAgentNames)[number];
+  }
+
+  return "writer_agent" as const;
 }

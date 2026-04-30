@@ -3,6 +3,7 @@ import path from "node:path";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import {
+  AccountSoulService,
   AccountRepository,
   BrowserSkillService,
   DashboardService,
@@ -30,6 +31,7 @@ import {
   TopicRepository,
   TopicReviewService,
   WorkerRunner,
+  ZhihuNoteAgentService,
   applySchemaMigrations,
   getAppConfig,
   getMysqlPool,
@@ -46,8 +48,11 @@ import {
   reselectTopicSchema,
   rescheduleJobSchema,
   retryJobSchema,
+  saveAccountSoulSchema,
   updateAccountSchema,
-  updatePromptDraftSchema
+  updatePromptDraftSchema,
+  zhihuNoteAgentApplySchema,
+  zhihuNoteAgentGenerateSchema
 } from "@zhihu-mvp/shared";
 
 const app = Fastify({ logger: true });
@@ -57,6 +62,7 @@ await applySchemaMigrations(pool);
 const promptRepository = new PromptRepository(pool);
 const promptService = new PromptService(promptRepository);
 const llmService = new LlmService(promptRepository);
+const accountSoulService = new AccountSoulService();
 const accountRepository = new AccountRepository(pool);
 const scheduleRepository = new ScheduleRepository(pool);
 const scheduleService = new ScheduleService(scheduleRepository, accountRepository);
@@ -66,6 +72,7 @@ const topicBatchPlannerService = new TopicBatchPlannerService(llmService, topicR
 const topicReviewService = new TopicReviewService(llmService);
 const reviewService = new ReviewService(llmService);
 const humanizerService = new HumanizerService(jobRepository);
+const zhihuNoteAgentService = new ZhihuNoteAgentService(llmService);
 const topicPipelineService = new TopicPipelineService(
   llmService,
   topicRepository,
@@ -129,7 +136,7 @@ app.setErrorHandler((error, _request, reply) => {
   reply.status(statusCode).send({
     error: {
       code: statusCode,
-      message: error instanceof Error ? error.message : "服务端发生未知错误。"
+      message: error instanceof Error ? error.message : "服务端发生未知错误"
     }
   });
 });
@@ -197,6 +204,7 @@ app.post("/accounts", async (request) => {
     throw new Error("账号已创建，但读取账号信息失败。");
   }
 
+  await accountSoulService.ensureSoulDocument(account);
   await scheduleService.bootstrapTodaySchedule();
 
   return {
@@ -236,6 +244,8 @@ app.delete("/accounts/:id", async (request) => {
     throw error;
   }
 
+  await accountSoulService.deleteSoulDocument(accountId);
+
   return {
     ok: true,
     deletedAccountId: accountId,
@@ -259,6 +269,7 @@ app.get("/topics", async (request) => ({
 app.get("/topics/batch-plan", async (request) => {
   const accountId = parseOptionalAccountIdFromQuery(request);
   const account = accountId ? await accountRepository.getAccount(accountId) : null;
+  const soulDocument = account ? await accountSoulService.ensureSoulDocument(account) : null;
 
   return {
     plan: await topicBatchPlannerService.getCurrentBatchPlan(undefined, {
@@ -269,7 +280,8 @@ app.get("/topics/batch-plan", async (request) => {
             accountName: account.name,
             zhihuUserName: account.zhihuUserName
           }
-        : null
+        : null,
+      accountSoulMarkdown: soulDocument?.markdown ?? null
     })
   };
 });
@@ -296,6 +308,7 @@ app.post("/jobs", async (request) => {
   const promptSnapshot = await llmService.getPromptSnapshotForAccount({
     writerPromptVersionId: account.writerPromptVersionId
   });
+  const soulDocument = await accountSoulService.ensureSoulDocument(account);
   const promptSnapshotJson = JSON.stringify(promptSnapshot);
 
   const slot =
@@ -313,7 +326,9 @@ app.post("/jobs", async (request) => {
   const jobId = await jobRepository.createQueuedJob({
     accountId: body.accountId,
     scheduledAt: slot.scheduledAt,
-    promptVersionSnapshotJson: promptSnapshotJson
+    promptVersionSnapshotJson: promptSnapshotJson,
+    soulVersion: soulDocument.version,
+    soulMarkdownSnapshot: soulDocument.markdown
   });
   await scheduleRepository.assignJobToSlot(slot.id, jobId);
 
@@ -363,6 +378,110 @@ app.patch("/accounts/:id", async (request) => {
   return {
     ok: true,
     account: await accountRepository.getAccount(accountId)
+  };
+});
+
+/*
+app.get("/accounts/:id/soul", async (request) => {
+  const params = request.params as { id: string };
+  const accountId = Number(params.id);
+  const account = await accountRepository.getAccount(accountId);
+  if (!account) {
+    throw new Error("璐﹀彿涓嶅瓨鍦ㄣ€?);
+  }
+
+  return {
+    account,
+    soulDocument: await accountSoulService.ensureSoulDocument(account)
+  };
+});
+
+app.put("/accounts/:id/soul", async (request) => {
+  const params = request.params as { id: string };
+  const accountId = Number(params.id);
+  const body = saveAccountSoulSchema.parse(request.body ?? {});
+  const account = await accountRepository.getAccount(accountId);
+  if (!account) {
+    throw new Error("璐﹀彿涓嶅瓨鍦ㄣ€?);
+  }
+
+  return {
+    ok: true,
+    soulDocument: await accountSoulService.saveSoulDocument(account, {
+      coreIdentity: body.coreIdentity,
+      targetReader: body.targetReader,
+      voiceTraits: body.voiceTraits,
+      worldview: body.worldview,
+      proofAnchors: body.proofAnchors,
+      signatureMoves: body.signatureMoves,
+      productMentionPolicy: body.productMentionPolicy,
+      hardBoundaries: body.hardBoundaries,
+      tabooLexicon: body.tabooLexicon,
+      exemplarLines: body.exemplarLines,
+      updateReason: body.updateReason
+    })
+  };
+});
+
+*/
+
+app.get("/accounts/:id/soul", async (request) => {
+  const params = request.params as { id: string };
+  const accountId = Number(params.id);
+  const account = await accountRepository.getAccount(accountId);
+  if (!account) {
+    throw new Error("Account does not exist.");
+  }
+
+  return {
+    account,
+    soulDocument: await accountSoulService.ensureSoulDocument(account)
+  };
+});
+
+app.put("/accounts/:id/soul", async (request) => {
+  const params = request.params as { id: string };
+  const accountId = Number(params.id);
+  const body = saveAccountSoulSchema.parse(request.body ?? {});
+  const account = await accountRepository.getAccount(accountId);
+  if (!account) {
+    throw new Error("Account does not exist.");
+  }
+
+  return {
+    ok: true,
+    soulDocument: await accountSoulService.saveSoulDocument(account, {
+      coreIdentity: body.coreIdentity,
+      targetReader: body.targetReader,
+      voiceTraits: body.voiceTraits,
+      worldview: body.worldview,
+      proofAnchors: body.proofAnchors,
+      signatureMoves: body.signatureMoves,
+      productMentionPolicy: body.productMentionPolicy,
+      hardBoundaries: body.hardBoundaries,
+      tabooLexicon: body.tabooLexicon,
+      exemplarLines: body.exemplarLines,
+      updateReason: body.updateReason
+    })
+  };
+});
+
+app.post("/accounts/:id/note-agent/generate", async (request) => {
+  const account = await requireAccountById((request.params as { id: string }).id);
+  const body = zhihuNoteAgentGenerateSchema.parse(request.body ?? {});
+
+  return {
+    draft: await zhihuNoteAgentService.generateDraft(account, body)
+  };
+});
+
+app.post("/accounts/:id/note-agent/apply", async (request) => {
+  const account = await requireAccountById((request.params as { id: string }).id);
+  const body = zhihuNoteAgentApplySchema.parse(request.body ?? {});
+
+  return {
+    ok: true,
+    result: await zhihuNoteAgentService.applyDraft(account, body)
   };
 });
 
@@ -468,10 +587,22 @@ app.post("/jobs/:id/reselect-topic", async (request) => {
       writerPromptVersionId: account?.writerPromptVersionId ?? null
     }));
   const promptSnapshotJson = JSON.stringify(promptSnapshot);
+  const soulDocument = account ? await accountSoulService.ensureSoulDocument(account) : null;
+  const soulVersion = job.soulVersion ?? soulDocument?.version ?? null;
+  const accountSoulMarkdown = job.soulMarkdownSnapshot ?? soulDocument?.markdown ?? null;
+
+  if (!job.soulMarkdownSnapshot && soulDocument) {
+    await jobRepository.updateJobStatus(jobId, job.status, {
+      currentStage: job.currentStage ?? job.status,
+      soulVersion: soulDocument.version,
+      soulMarkdownSnapshot: soulDocument.markdown
+    });
+  }
 
   const replacement = await topicPipelineService.prepareNextPublishableDraft({
     publishJobId: jobId,
     promptSnapshot,
+    accountSoulMarkdown,
     accountContext: account
       ? {
           accountId: account.id,
@@ -493,12 +624,25 @@ app.post("/jobs/:id/reselect-topic", async (request) => {
     throw new Error("当前没有新的可替换选题。");
   }
 
+  if (replacement.kind !== "ready") {
+    throw new Error(replacement.reason || "Replacement topic did not produce a publishable draft.");
+  }
+
   await jobRepository.replaceJobPayload(jobId, {
     topicCardId: replacement.topicCardId,
     reviewId: replacement.reviewId,
     title: replacement.title,
     promptVersionSnapshotJson: promptSnapshotJson
   });
+
+  if (!job.soulMarkdownSnapshot && soulVersion != null && accountSoulMarkdown) {
+    await jobRepository.updateJobStatus(jobId, "review_passed", {
+      currentStage: "review_passed",
+      soulVersion,
+      soulMarkdownSnapshot: accountSoulMarkdown,
+      promptVersionSnapshotJson: promptSnapshotJson
+    });
+  }
 
   const slot = await scheduleRepository.getSlotByJobId(jobId);
   if (slot && slot.status !== "published") {
@@ -938,4 +1082,22 @@ function parseOptionalAccountIdFromQuery(requestLike: { query?: unknown }) {
   const value = typeof rawValue === "string" ? Number(rawValue) : typeof rawValue === "number" ? rawValue : NaN;
 
   return Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+async function requireAccountById(rawAccountId: string) {
+  const accountId = Number(rawAccountId);
+  if (!Number.isInteger(accountId) || accountId <= 0) {
+    const error = new Error("Account ID is invalid.") as Error & { statusCode?: number };
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const account = await accountRepository.getAccount(accountId);
+  if (!account) {
+    const error = new Error("Account does not exist.") as Error & { statusCode?: number };
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return account;
 }

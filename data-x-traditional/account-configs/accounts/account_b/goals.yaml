@@ -1,0 +1,34 @@
+chain: x_traditional
+account_key: account_b
+draft_status: draft_v1
+
+current_phase: "热点反应打样期"
+time_horizon_days: 14
+
+primary_goal: "建立‘热点来了看这个号’的账号心智。"
+secondary_goal: "提高互动、转发和对市场事件的快速占位能力。"
+
+kpi_priority:
+  - "互动"
+  - "转发"
+  - "关注转化"
+  - "热点命中率"
+
+current_focus:
+  - "优先抢占高相关热点的第一判断"
+  - "把事件影响和历史类比写清楚"
+  - "建立‘不是搬运，而是翻译成交易影响’的稳定印象"
+
+current_experiments:
+  - "测试单条快反和短 thread 哪个更适合热点交易内容"
+  - "测试‘先结论后支撑’和‘先事实后判断’哪种更适合热点账号"
+  - "测试 quote/reply 是否更适合抢热点位置"
+
+not_a_priority_for_now:
+  - "长篇教学"
+  - "系列化指标内容"
+  - "没有时效性的复古热点"
+
+success_definition:
+  short_term: "让读者形成‘看热点影响先看这个号’的初步预期。"
+  medium_term: "建立稳定的事件影响分析风格，而不是沦为消息搬运号。"

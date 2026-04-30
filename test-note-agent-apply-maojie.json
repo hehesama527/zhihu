@@ -1,0 +1,119 @@
+﻿{
+    "ok":  true,
+    "result":  {
+                   "accountId":  "trad-account-a",
+                   "accountKey":  "account_a",
+                   "appliedAt":  "2026-04-23T10:16:51.748Z",
+                   "writtenPaths":  [
+                                        "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\style_rules.md",
+                                        "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\number_expression_rules.md",
+                                        "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\review_rubric.md",
+                                        "H:\\claw\\data-x-traditional\\account-configs\\accounts\\account_a\\soul_candidate.md",
+                                        "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\note-agent\\learned_style_profile.md",
+                                        "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\note-agent\\learned_samples.jsonl",
+                                        "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\note-agent\\source_map.yaml",
+                                        "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\note-agent\\last_run.json"
+                                    ],
+                   "actionsApplied":  {
+                                          "writeRagDocs":  true,
+                                          "saveSoulCandidate":  true,
+                                          "saveLearnedAssets":  true
+                                      },
+                   "phaseReport":  {
+                                       "phase":  "apply_account_assets",
+                                       "status":  "passed",
+                                       "startedAt":  "2026-04-23T10:16:51.721Z",
+                                       "finishedAt":  "2026-04-23T10:16:51.748Z",
+                                       "inputsRead":  [
+                                                          {
+                                                              "label":  "rag_readme",
+                                                              "path":  "H:\\claw\\data-x-traditional\\rag\\README.md",
+                                                              "exists":  true
+                                                          },
+                                                          {
+                                                              "label":  "account_soul",
+                                                              "path":  "H:\\claw\\data-x-traditional\\account-configs\\accounts\\account_a\\soul.md",
+                                                              "exists":  true
+                                                          },
+                                                          {
+                                                              "label":  "account_strategy",
+                                                              "path":  "H:\\claw\\data-x-traditional\\account-configs\\accounts\\account_a\\strategy.yaml",
+                                                              "exists":  true
+                                                          },
+                                                          {
+                                                              "label":  "account_goals",
+                                                              "path":  "H:\\claw\\data-x-traditional\\account-configs\\accounts\\account_a\\goals.yaml",
+                                                              "exists":  true
+                                                          },
+                                                          {
+                                                              "label":  "account_sample_filter",
+                                                              "path":  "H:\\claw\\data-x-traditional\\account-configs\\accounts\\account_a\\sample_filter.md",
+                                                              "exists":  true
+                                                          },
+                                                          {
+                                                              "label":  "account_boundaries",
+                                                              "path":  "H:\\claw\\data-x-traditional\\account-configs\\accounts\\account_a\\boundaries.yaml",
+                                                              "exists":  false
+                                                          },
+                                                          {
+                                                              "label":  "soul_candidate",
+                                                              "path":  "H:\\claw\\data-x-traditional\\account-configs\\accounts\\account_a\\soul_candidate.md",
+                                                              "exists":  false
+                                                          },
+                                                          {
+                                                              "label":  "style_rules",
+                                                              "path":  "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\style_rules.md",
+                                                              "exists":  true
+                                                          },
+                                                          {
+                                                              "label":  "number_expression_rules",
+                                                              "path":  "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\number_expression_rules.md",
+                                                              "exists":  true
+                                                          },
+                                                          {
+                                                              "label":  "review_rubric",
+                                                              "path":  "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\review_rubric.md",
+                                                              "exists":  true
+                                                          },
+                                                          {
+                                                              "label":  "learned_style_profile",
+                                                              "path":  "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\note-agent\\learned_style_profile.md",
+                                                              "exists":  false
+                                                          },
+                                                          {
+                                                              "label":  "learned_samples",
+                                                              "path":  "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\note-agent\\learned_samples.jsonl",
+                                                              "exists":  false
+                                                          },
+                                                          {
+                                                              "label":  "source_map",
+                                                              "path":  "H:\\claw\\data-x-traditional\\rag\\accounts\\account_a\\note-agent\\source_map.yaml",
+                                                              "exists":  false
+                                                          }
+                                                      ],
+                                       "validationChecks":  [
+                                                                {
+                                                                    "label":  "target_account_matches",
+                                                                    "passed":  true,
+                                                                    "severity":  "info",
+                                                                    "details":  "draft.accountId=trad-account-a, draft.accountKey=account_a"
+                                                                },
+                                                                {
+                                                                    "label":  "write_paths_match_target_account",
+                                                                    "passed":  true,
+                                                                    "severity":  "error",
+                                                                    "details":  "8 target files prepared for account_a."
+                                                                },
+                                                                {
+                                                                    "label":  "writeback_reloaded_non_empty",
+                                                                    "passed":  true,
+                                                                    "severity":  "error",
+                                                                    "details":  "8/8 files reloaded as non-empty."
+                                                                }
+                                                            ],
+                                       "diagnostics":  [
+
+                                                       ]
+                                   }
+               }
+}

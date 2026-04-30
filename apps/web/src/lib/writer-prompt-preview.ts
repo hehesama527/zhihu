@@ -39,16 +39,16 @@ export function buildWriterPromptSuffixPreview(account: WriterPromptAccount | nu
   }
 
   const lines = [
-    "Runtime account context:",
-    `1. The current target account/persona name is "${personaName}". If the base prompt mentions a default persona name such as "二牛", override it with this account.`,
-    "2. This is still the lightweight matrix-testing phase. Do not rewrite the whole style system just to create superficial differences between accounts.",
-    "3. The main adjustment should happen in tone, observation angle and experience framing, while the answer still needs to feel natural, restrained and believable.",
-    `4. Unless the topic truly needs a credibility setup, do not open the answer with a rigid self-introduction like "我是${personaName}".`
+    "运行时账号上下文：",
+    `1. 当前目标账号 / 人设名是“${personaName}”。如果基础 Prompt 里提到了默认人设名，例如“二牛”，请用当前账号覆盖。`,
+    "2. 现在仍处在轻量矩阵测试阶段，不要为了制造表面差异去重写整套风格系统。",
+    "3. 主要调整应该放在语气、观察角度和经验框架上，同时保证回答自然、克制、可信。",
+    `4. 除非题目确实需要建立可信度，否则不要用“我是${personaName}”这种生硬自我介绍开头。`
   ];
 
   if (account?.zhihuUserName?.trim()) {
     lines.push(
-      `5. The linked Zhihu username is "${account.zhihuUserName.trim()}". It can be used as a tone reference when needed, but it does not need to appear in the final answer.`
+      `5. 关联的知乎账号名是“${account.zhihuUserName.trim()}”。必要时可以作为语气参考，但不需要强行出现在最终回答里。`
     );
   }
 
@@ -84,5 +84,15 @@ export function formatPromptVersion(version: PromptVersionSummary | null | undef
     return "暂无可用版本";
   }
 
-  return `v${version.version} / ${version.label} / ${version.status}`;
+  return `v${version.version} / ${version.label} / ${formatVersionStatus(version.status)}`;
+}
+
+function formatVersionStatus(status: PromptVersionSummary["status"]) {
+  const map: Record<PromptVersionSummary["status"], string> = {
+    draft: "草稿",
+    active: "生效中",
+    archived: "已归档"
+  };
+
+  return map[status];
 }

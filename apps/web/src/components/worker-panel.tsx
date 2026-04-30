@@ -35,7 +35,7 @@ export function WorkerPanel({ accountId }: WorkerPanelProps) {
     <div className="card">
       <div className="inline-row">
         <div>
-          <h3>Worker 调度</h3>
+          <h3>执行器调度</h3>
           <p className="muted">需要立刻推进排期、选题、审核或发布时，可以手动跑一轮。</p>
           <p className="helper-text">
             {accountId === null ? "当前还没有选中账号。" : `当前“新建任务”会直接落到账号 #${accountId}。`}
@@ -75,7 +75,7 @@ export function WorkerPanel({ accountId }: WorkerPanelProps) {
                   const payload = await call("/worker/tick");
                   setResult(JSON.stringify(payload, null, 2));
                 } catch (error) {
-                  setResult(error instanceof Error ? error.message : "执行 Worker 失败。");
+                  setResult(error instanceof Error ? error.message : "执行器运行失败。");
                 }
               })
             }
@@ -85,8 +85,8 @@ export function WorkerPanel({ accountId }: WorkerPanelProps) {
         </div>
       </div>
 
-      <p className="helper-text">当前前端请求的 API：{getClientApiBaseUrl()}</p>
-      <pre>{result || "这里会显示最近一次手动触发的 Worker 结果。"}</pre>
+      <p className="helper-text">当前前端请求的接口：{getClientApiBaseUrl()}</p>
+      <pre>{result || "这里会显示最近一次手动触发的执行结果。"}</pre>
     </div>
   );
 }

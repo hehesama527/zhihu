@@ -1,0 +1,44 @@
+﻿[
+  {
+    "id": "task-approved-now",
+    "accountId": "acct-ready",
+    "title": "Approved publish",
+    "brief": "approved brief",
+    "goal": "goal",
+    "preferredMode": "single",
+    "forceResearch": false,
+    "status": "approved_to_publish",
+    "currentStage": "approved_to_publish",
+    "researchVersion": 2,
+    "researchMarkdownSnapshot": "# Account Research",
+    "draftPack": {
+      "summary": "sum",
+      "posts": ["hello from dry run"],
+      "notes": ["note"]
+    },
+    "reviewResult": {
+      "decision": "approve",
+      "reason": "ok",
+      "revisionInstructions": [],
+      "qualityNotes": []
+    },
+    "publishPlan": {
+      "shouldPublish": true,
+      "mode": "single",
+      "cadence": "single_now",
+      "deferMinutes": 0,
+      "reason": "ship now"
+    },
+    "publishResult": null,
+    "revisionCount": 0,
+    "researchCount": 1,
+    "scheduledAt": null,
+    "failureStage": null,
+    "failureType": null,
+    "failureReason": null,
+    "createdAt": "2026-04-04T10:08:58.5951355Z",
+    "updatedAt": "2026-04-04T10:08:58.5951355Z",
+    "startedAt": "2026-04-04T10:08:58.5951355Z",
+    "finishedAt": null
+  }
+]

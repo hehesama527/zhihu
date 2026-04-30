@@ -19,6 +19,7 @@ type JobRow = RowDataPacket & {
   account_id: number;
   topic_card_id: number | null;
   review_id: number | null;
+  image_asset_id: string | null;
   status: JobStatus;
   title: string | null;
   scheduled_at: Date | null;
@@ -28,6 +29,8 @@ type JobRow = RowDataPacket & {
   retry_count: number;
   failure_reason: string | null;
   prompt_version_snapshot_json: string | null;
+  soul_version: number | null;
+  soul_markdown_snapshot: string | null;
   current_stage: JobStage | null;
   resume_anchor_json: string | null;
   last_trace_id: string | null;
@@ -124,6 +127,8 @@ type JobUpdateOptions = {
   currentStage?: JobStage | null;
   resumeAnchorJson?: string | null;
   promptVersionSnapshotJson?: string | null;
+  soulVersion?: number | null;
+  soulMarkdownSnapshot?: string | null;
   lastTraceId?: string | null;
   lastErrorType?: FailureType | null;
 };
@@ -189,6 +194,8 @@ export class JobRepository {
     scheduledAt: string | Date | null;
     title?: string | null;
     promptVersionSnapshotJson?: string | null;
+    soulVersion?: number | null;
+    soulMarkdownSnapshot?: string | null;
   }) {
     const [result] = await this.pool.query<ResultSetHeader>(
       `INSERT INTO publish_jobs (
@@ -197,14 +204,18 @@ export class JobRepository {
          title,
          scheduled_at,
          prompt_version_snapshot_json,
+         soul_version,
+         soul_markdown_snapshot,
          current_stage
        )
-      VALUES (?, 'queued', ?, ?, ?, 'queued')`,
+      VALUES (?, 'queued', ?, ?, ?, ?, ?, 'queued')`,
       [
         input.accountId,
         input.title ?? null,
         normalizeMysqlDateTime(input.scheduledAt),
-        input.promptVersionSnapshotJson ?? null
+        input.promptVersionSnapshotJson ?? null,
+        input.soulVersion ?? null,
+        input.soulMarkdownSnapshot ?? null
       ]
     );
     return result.insertId;
@@ -251,6 +262,8 @@ export class JobRepository {
     const hasCurrentStage = options ? Object.prototype.hasOwnProperty.call(options, "currentStage") : false;
     const hasResumeAnchor = options ? Object.prototype.hasOwnProperty.call(options, "resumeAnchorJson") : false;
     const hasPromptSnapshot = options ? Object.prototype.hasOwnProperty.call(options, "promptVersionSnapshotJson") : false;
+    const hasSoulVersion = options ? Object.prototype.hasOwnProperty.call(options, "soulVersion") : false;
+    const hasSoulMarkdownSnapshot = options ? Object.prototype.hasOwnProperty.call(options, "soulMarkdownSnapshot") : false;
     const hasLastTraceId = options ? Object.prototype.hasOwnProperty.call(options, "lastTraceId") : false;
     const hasLastErrorType = options ? Object.prototype.hasOwnProperty.call(options, "lastErrorType") : false;
 
@@ -262,6 +275,8 @@ export class JobRepository {
            current_stage = CASE WHEN ? THEN ? ELSE current_stage END,
            resume_anchor_json = CASE WHEN ? THEN ? ELSE resume_anchor_json END,
            prompt_version_snapshot_json = CASE WHEN ? THEN ? ELSE prompt_version_snapshot_json END,
+           soul_version = CASE WHEN ? THEN ? ELSE soul_version END,
+           soul_markdown_snapshot = CASE WHEN ? THEN ? ELSE soul_markdown_snapshot END,
            last_trace_id = CASE WHEN ? THEN ? ELSE last_trace_id END,
            last_error_type = CASE WHEN ? THEN ? ELSE last_error_type END,
            started_at = CASE WHEN ? = 'publishing' AND started_at IS NULL THEN CURRENT_TIMESTAMP ELSE started_at END,
@@ -279,6 +294,10 @@ export class JobRepository {
         options?.resumeAnchorJson ?? null,
         hasPromptSnapshot ? 1 : 0,
         options?.promptVersionSnapshotJson ?? null,
+        hasSoulVersion ? 1 : 0,
+        options?.soulVersion ?? null,
+        hasSoulMarkdownSnapshot ? 1 : 0,
+        options?.soulMarkdownSnapshot ?? null,
         hasLastTraceId ? 1 : 0,
         options?.lastTraceId ?? null,
         hasLastErrorType ? 1 : 0,
@@ -474,6 +493,15 @@ export class JobRepository {
            finished_at = NULL
        WHERE id = ?`,
       [jobId]
+    );
+  }
+
+  async bindImageAsset(jobId: number, imageAssetId: string | null) {
+    await this.pool.query(
+      `UPDATE publish_jobs
+       SET image_asset_id = ?
+       WHERE id = ?`,
+      [imageAssetId, jobId]
     );
   }
 
@@ -786,6 +814,7 @@ function mapJobRow(row: JobRow): JobListItem {
     accountId: row.account_id,
     topicCardId: row.topic_card_id,
     reviewId: row.review_id,
+    imageAssetId: row.image_asset_id ?? null,
     status: row.status,
     displayStatus: mapDisplayStatus(row.status),
     title: row.title,
@@ -803,6 +832,8 @@ function mapJobRow(row: JobRow): JobListItem {
     currentStage: row.current_stage ?? null,
     resumeAnchorJson: row.resume_anchor_json ?? null,
     promptVersionSnapshotJson: row.prompt_version_snapshot_json ?? null,
+    soulVersion: row.soul_version ?? null,
+    soulMarkdownSnapshot: row.soul_markdown_snapshot ?? null,
     latestAttemptStatus: row.latest_attempt_status ?? null,
     latestFailureType: row.latest_failure_type ?? null,
     latestScreenshotPath: row.latest_screenshot_path ?? null,
@@ -827,6 +858,10 @@ function mapDisplayStatus(status: JobStatus): JobDisplayStatus {
     status === "review_publish"
   ) {
     return "reviewing";
+  }
+
+  if (status === "needs_manual_review") {
+    return "needs_manual_review";
   }
 
   if (status === "review_passed") {

@@ -1,0 +1,29 @@
+[
+  {
+    "id": "74b638ec-8177-488e-b770-b76bb532579f",
+    "accountId": "7b8b192a-ee51-4095-a36d-57dea6eb2979",
+    "title": "Run Task",
+    "brief": "smoke brief",
+    "goal": "smoke",
+    "preferredMode": "auto",
+    "forceResearch": false,
+    "status": "blocked",
+    "currentStage": "research_failed",
+    "researchVersion": null,
+    "researchMarkdownSnapshot": null,
+    "draftPack": null,
+    "reviewResult": null,
+    "publishPlan": null,
+    "publishResult": null,
+    "revisionCount": 0,
+    "researchCount": 0,
+    "scheduledAt": null,
+    "failureStage": "research",
+    "failureType": "llm_error",
+    "failureReason": "401 invalid access token or token expired",
+    "createdAt": "2026-04-04T09:43:57.737Z",
+    "updatedAt": "2026-04-04T09:43:57.900Z",
+    "startedAt": "2026-04-04T09:43:57.748Z",
+    "finishedAt": "2026-04-04T09:43:57.899Z"
+  }
+]

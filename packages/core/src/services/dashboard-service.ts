@@ -40,9 +40,11 @@ export class DashboardService {
     const resumeAnchor = primaryBlockedJob
       ? safeParseJson<Record<string, unknown>>(primaryBlockedJob.resumeAnchorJson ?? "{}", {})
       : {};
+    const coolingDown = isCoolingDown(account.cooldownUntil);
 
     return {
       ...account,
+      coolingDown,
       recoveryRequired:
         account.status === "manual_login_required" || account.status === "session_expired" || blockedJobs.length > 0,
       recoveryReason: primaryBlockedJob?.failureReason ?? account.statusReason ?? null,
@@ -80,4 +82,13 @@ export class DashboardService {
       }
     };
   }
+}
+
+function isCoolingDown(value: string | null) {
+  if (!value) {
+    return false;
+  }
+
+  const timestamp = new Date(value).valueOf();
+  return Number.isFinite(timestamp) && timestamp > Date.now();
 }

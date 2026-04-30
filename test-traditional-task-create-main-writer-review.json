@@ -1,0 +1,32 @@
+﻿{
+    "ok":  true,
+    "task":  {
+                 "id":  "199e818b-a360-4f7e-bde8-6ea8509f6b3d",
+                 "accountId":  "trad-account-a",
+                 "imageAssetId":  null,
+                 "title":  "MACD背离为什么不能单独当买点",
+                 "brief":  "围绕指标误区写一条单帖：先给结论，再说明必须同时看结构、周期和失效边界，避免喊单和鸡汤。",
+                 "goal":  "给刚建立交易系统的中文交易者拆解一个常见误区：MACD背离只能作为节奏确认，不能脱离结构、周期和止损边界单独使用。",
+                 "preferredMode":  "single",
+                 "status":  "planned",
+                 "currentStage":  "planned",
+                 "soulVersion":  null,
+                 "soulMarkdownSnapshot":  null,
+                 "draftPack":  null,
+                 "mainAgentPlan":  null,
+                 "reviewAgentResult":  null,
+                 "reviewResult":  null,
+                 "publishPlan":  null,
+                 "publishResult":  null,
+                 "promptVersionSnapshotJson":  null,
+                 "revisionCount":  0,
+                 "scheduledAt":  null,
+                 "failureStage":  null,
+                 "failureType":  null,
+                 "failureReason":  null,
+                 "createdAt":  "2026-04-23T10:20:52.923Z",
+                 "updatedAt":  "2026-04-23T10:20:52.923Z",
+                 "startedAt":  null,
+                 "finishedAt":  null
+             }
+}

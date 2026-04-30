@@ -1,0 +1,79 @@
+{
+  "accountKey": "account_a",
+  "displayName": "account_a",
+  "version": 1,
+  "docs": [
+    {
+      "id": "style_rules",
+      "type": "style_rules",
+      "title": "Style Rules",
+      "description": "Stable account-specific writing constraints used by Writer and Review.",
+      "format": "markdown",
+      "path": "style_rules.md",
+      "enabled": true,
+      "stages": ["writer", "review"],
+      "modes": ["single", "thread"],
+      "maxItems": 1
+    },
+    {
+      "id": "number_expression_rules",
+      "type": "number_expression_rules",
+      "title": "Number Expression Rules",
+      "description": "Controls when to use exact numbers, ranges, or natural virtual reference.",
+      "format": "markdown",
+      "path": "number_expression_rules.md",
+      "enabled": true,
+      "stages": ["writer", "review"],
+      "modes": ["single", "thread"],
+      "maxItems": 1
+    },
+    {
+      "id": "review_rubric",
+      "type": "review_rubric",
+      "title": "Review Rubric",
+      "description": "Account-specific review checklist for AI smell, topic fit, and naturalness.",
+      "format": "markdown",
+      "path": "review_rubric.md",
+      "enabled": true,
+      "stages": ["review"],
+      "modes": ["single", "thread"],
+      "maxItems": 1
+    },
+    {
+      "id": "good_single_posts",
+      "type": "good_single_posts",
+      "title": "Good Single Posts",
+      "description": "Curated single-post examples for this account.",
+      "format": "jsonl",
+      "path": "good_single_posts.jsonl",
+      "enabled": true,
+      "stages": ["writer", "review"],
+      "modes": ["single"],
+      "maxItems": 3
+    },
+    {
+      "id": "good_threads",
+      "type": "good_threads",
+      "title": "Good Threads",
+      "description": "Curated thread examples for this account.",
+      "format": "jsonl",
+      "path": "good_threads.jsonl",
+      "enabled": true,
+      "stages": ["writer", "review"],
+      "modes": ["thread"],
+      "maxItems": 2
+    },
+    {
+      "id": "bad_posts",
+      "type": "bad_posts",
+      "title": "Bad Posts",
+      "description": "Rejected anti-patterns used by Review to catch AI smell and data overexposure.",
+      "format": "jsonl",
+      "path": "bad_posts.jsonl",
+      "enabled": true,
+      "stages": ["review"],
+      "modes": ["single", "thread"],
+      "maxItems": 3
+    }
+  ]
+}

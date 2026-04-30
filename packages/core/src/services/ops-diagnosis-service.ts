@@ -43,8 +43,8 @@ export class OpsDiagnosisService {
     };
 
     try {
-      const client = createOpenAiClient("ops");
-      const runtime = readLlmRuntimeConfig("ops");
+      const client = createOpenAiClient("ops_agent");
+      const runtime = readLlmRuntimeConfig("ops_agent");
       const response = await createLlmTextResponse(
         client,
         runtime,
@@ -52,11 +52,12 @@ export class OpsDiagnosisService {
           {
             role: "system",
             content: [
-              "你是内部故障诊断助手。",
+              "你是内部故障诊断助手 (v3.0 anti-detection aware)。",
               "请严格输出 JSON，键必须是：summary, rootCause, keyEvidence, suggestedAction。",
               "全部使用简体中文自然语言，便于非研发同学快速理解。",
               "结论要具体、可执行，不要空话，不要输出代码。",
-              "keyEvidence 必须是短句数组，最多 5 条。"
+              "keyEvidence 必须是短句数组，最多 5 条。",
+              "特别注意反检测相关错误：如果evidence或title包含 'stealth', 'fingerprint', 'canvas', 'webdriver', 'challenge', '风控', '行为模拟', 'trace' 等关键词，rootCause应优先考虑浏览器指纹/行为检测问题，并给出针对Phase1-3优化 (stealth-inject, human delay, prompt约束) 的具体建议。"
             ].join(" ")
           },
           {

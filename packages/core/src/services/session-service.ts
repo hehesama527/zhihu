@@ -239,8 +239,10 @@ export class SessionService {
       this.llmService.runJsonWithSystemPrompt<SessionDetectionResult>(
         `${publishPrompt}
 
-补充说明：
+补充说明 (v3.0 anti-detection enhanced):
 你现在执行的是 Publish Agent 的“登录态判断任务”。
+
+**反检测提醒 (Phase 3)**：系统已强化浏览器指纹 (canvas/WebGL/UA spoof) 和人类行为 (自然鼠标、随机delay、pseudo browse)。在判断时如果看到异常快速操作或机械模式提示，请标记为潜在session_expired或unknown，并建议人工检查。
 
 任务目标：
 根据当前知乎页面快照，判断这个账号是否处于可继续执行的已登录状态。

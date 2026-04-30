@@ -1,0 +1,8 @@
+2026/04/23-12:14:44.155 dc80 Reusing MANIFEST H:\claw\data-x-traditional\profiles\account_a\Default\EdgeCoupons/coupons_data.db/MANIFEST-000001
+2026/04/23-12:14:44.156 dc80 Recovering log #46
+2026/04/23-12:14:44.156 dc80 Reusing old log H:\claw\data-x-traditional\profiles\account_a\Default\EdgeCoupons/coupons_data.db/000046.log 
+2026/04/23-12:14:44.165 540c Level-0 table #50: started
+2026/04/23-12:14:44.168 540c Level-0 table #50: 682224 bytes OK
+2026/04/23-12:14:44.169 540c Delete type=0 #46
+2026/04/23-12:14:44.170 540c Compacting 4@0 + 1@1 files
+2026/04/23-12:14:44.172 540c compacted to: files[ 4 1 1 0 0 0 0 ]
