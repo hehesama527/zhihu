@@ -1,0 +1,15 @@
+const fs = require('fs');
+const iconv = require('iconv-lite');
+
+// ??????
+const buffer = fs.readFileSync('h:/claw/apps/api/src/server.ts');
+
+// ???? GBK ?????????????? GBK ???? UTF-8?
+try {
+  const content = iconv.decode(buffer, 'gbk');
+  // ????? UTF-8
+  fs.writeFileSync('h:/claw/apps/api/src/server.ts', iconv.encode(content, 'utf8'));
+  console.log('???????');
+} catch (error) {
+  console.error('????:', error.message);
+}

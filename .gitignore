@@ -17,3 +17,6 @@ data-edge
 tmp-*.err
 tmp-*.out
 tmp-*.json
+*.log
+tmp-*
+data-x-traditional/

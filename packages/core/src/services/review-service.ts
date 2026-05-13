@@ -184,6 +184,8 @@ Required output contract:
 7. Return JSON only. No markdown. No explanation outside JSON.
 8. editorial.quality must score whether the answer feels native to Zhihu, account-specific, concrete, evidenced, restrained, and low-AI-smell.
 
+${buildAiAuthenticityReviewPromptSuffix()}
+
 Duplication review must be intentionally relaxed.
 The goal is not to force every article to sound like it was written by a completely different person.
 The real goal is only to prevent the new article from feeling like a copy-paste rewrite of a recent article.
@@ -245,6 +247,59 @@ Output schema:
   }
 }`;
 }
+
+function buildAiAuthenticityReviewPromptSuffix() {
+  return USE_COMBINED_REVIEW_AI_AUTHENTICITY_PROMPT_ROLLBACK
+    ? COMBINED_REVIEW_AI_AUTHENTICITY_PROMPT_ROLLBACK
+    : COMBINED_REVIEW_AI_AUTHENTICITY_PROMPT_V1;
+}
+
+const USE_COMBINED_REVIEW_AI_AUTHENTICITY_PROMPT_ROLLBACK = false;
+const COMBINED_REVIEW_AI_AUTHENTICITY_PROMPT_ROLLBACK = "";
+
+const COMBINED_REVIEW_AI_AUTHENTICITY_PROMPT_V1 = `AI-authenticity review:
+This is a prompt-only review signal inside Review Agent. It is not a separate approval gate.
+Judge whether the draft reads like AI-generated content or AI-humanized content. Do not claim authorship certainty; judge only reader-facing risk.
+
+Check these signals:
+1. Over-complete, over-smooth argument structure.
+2. Template openings, universal conclusions, or standard three-part progression.
+3. Personal-experience wording without concrete scene support, such as vague "I used to..." or "from my experience..." claims.
+4. Dense numbers, cases, or judgments with unclear source boundaries.
+5. Cases that feel too perfectly constructed instead of naturally observed or clearly marked as composite.
+6. Product insertion that is too smooth, too planned, or reads like a soft-ad bridge rather than a workflow step.
+7. Paragraph rhythm that is too stable, where every paragraph follows claim + explanation + summary.
+8. Deliberately strong opinions, deliberately colloquial lines, or "veteran trader" voice that feels staged.
+9. Polished golden-line endings, slogan-like elevation, or over-neat closure.
+10. Generic AI filler such as "therefore / meanwhile / overall", vague authority attribution, excessive abstract nouns, and unnecessary three-item lists.
+11. Repeatedly using the same voice pattern across long answers, especially when every paragraph stays equally polished and equally complete.
+12. Using a pseudo-experienced tone without one or two grounded, imperfect details that a real person would usually leave in.
+
+Scoring rubric for editorial.quality.dimensions.ai_smell.score:
+85-100: Almost no obvious AI-writing risk.
+70-84: Light AI smell; publishable if other review dimensions pass.
+55-69: Moderate AI smell; give local rewrite suggestions and make the suspicious passages explicit.
+40-54: Obvious AI smell; request REVISE and identify the sections that should be rewritten.
+0-39: Highly templated or synthetic; do not publish without major rewrite.
+
+Sensitivity rule:
+1. If the draft shows 3 or more concrete AI-smell signals from the list above, do not keep ai_smell above 69.
+2. If the draft shows 5 or more signals, or one very strong staged-persona signal, score ai_smell below 55 unless there is very strong grounded detail that clearly outweighs the pattern.
+3. A polished long answer is not automatically AI-written, but if the polish stays uniform across most paragraphs and there are no rough edges, do not be conservative with the score.
+
+Output requirements for AI-smell feedback:
+1. Put concrete findings in editorial.quality.dimensions.ai_smell.issues.
+2. Put executable rewrite direction in editorial.quality.dimensions.ai_smell.suggestion.
+3. If AI smell contributes to revision, include the same concrete evidence in editorial.rewrite_brief and editorial.quality.rewriteBrief so Writer can revise through the existing Review -> Writer loop.
+4. Quote or summarize the suspicious original phrase or paragraph. Do not write vague feedback such as "make it more natural".
+5. If evidence is weak, keep ai_smell.score >= 70 and do not force REVISE only for AI smell.
+6. Only score below 55 when there are multiple concrete signals or one severe signal that would make a normal Zhihu reader feel the answer is synthetic.
+7. If the article is structurally strong but still feels over-polished, point to the exact paragraphs that read most staged instead of giving a generic global comment.
+
+Example feedback style:
+1. "以前我也这样，后来学着做回测" uses personal-experience voice but has no specific scene or action detail, so it feels like humanized-template writing. Ask Writer to either add a concrete operation detail or change it to a general reader observation.
+2. "CryptoPathX" appears in consecutive paragraphs and the transition is too smooth, making the product mention feel pre-planned. Ask Writer to keep one product mention and turn the other into "visual backtesting tool" or a concrete workflow step.
+3. The closing sentence is too polished and slogan-like. Ask Writer to end with a restrained action boundary or a specific risk reminder.`;
 
 type SoftPromoReviewDirective = {
   shouldInclude: boolean;

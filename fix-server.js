@@ -1,0 +1,24 @@
+const fs = require('fs');
+
+// ??????
+const buffer = fs.readFileSync('h:/claw/apps/api/src/server.ts');
+
+// ?? latin1 ????????????
+let content = buffer.toString('latin1');
+
+// ??????????
+const replacements = [
+  ['???', '?????????'],
+  ['??', '??'],
+  ['?', '?'],
+  ['?', '?'],
+];
+
+replacements.forEach(([oldStr, newStr]) => {
+  const regex = new RegExp(oldStr, 'g');
+  content = content.replace(regex, newStr);
+});
+
+// ??? UTF-8
+fs.writeFileSync('h:/claw/apps/api/src/server.ts', content, 'utf8');
+console.log('Done!');

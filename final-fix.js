@@ -1,0 +1,31 @@
+const fs = require('fs');
+
+let content = fs.readFileSync('h:/claw/apps/api/src/server.ts', 'utf8');
+
+// ??????????????????
+const replacements = [
+  ['"???????????????"', '"?????????"'],
+  ['"????????????????????????"', '"?????????"'],
+];
+
+let changed = false;
+replacements.forEach(([wrong, correct]) => {
+  if (content.includes(wrong)) {
+    content = content.split(wrong).join(correct);
+    changed = true;
+    console.log('Replaced:', wrong.substring(0, 20), '...');
+  }
+});
+
+if (changed) {
+  fs.writeFileSync('h:/claw/apps/api/src/server.ts', content, 'utf8');
+  console.log('File updated!');
+} else {
+  console.log('No matches found.');
+  // ???????????
+  const idx = content.indexOf('error instanceof Error');
+  if (idx >= 0) {
+    const context = content.substring(idx, idx + 60);
+    console.log('Actual context:', JSON.stringify(context));
+  }
+}
